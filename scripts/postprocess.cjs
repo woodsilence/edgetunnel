@@ -24,6 +24,11 @@ for (const m of MODULES) {
 // Version 是第 1 行的 `const Version = '...'`（提取器未收录，这里补上）
 owner.set('Version', 'src/constants.js');
 
+// 内置页面模块（不在 monolith 中声明，故手工登记归属）
+for (const fn of ['登录页', '管理面板', '未配置密码页', '未绑定KV页']) {
+  owner.set(fn, 'src/pages.js');
+}
+
 // state.js 持有的可变状态（由 index 统一提交，不从其它模块 import）
 const STATE = new Set([
   '初始化共享状态', 'config_JSON', '调试日志打印', '预加载竞速拨号',
@@ -118,7 +123,7 @@ const log = (ok, msg) => console.log(`  ${ok ? '✔' : '✘'} ${msg}`);
 
   const LOCAL = new Set(['config_JSON', '管理员密码', '加密秘钥', 'userID']);
   const wanted = [...new Set(
-    [...decls.map(d => d.name), 'Version']
+    [...decls.map(d => d.name), 'Version', '登录页', '管理面板', '未配置密码页', '未绑定KV页']
       .filter(n => n && !LOCAL.has(n) && body.includes(n))
   )];
 

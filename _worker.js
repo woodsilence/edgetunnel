@@ -27,7 +27,6 @@ function \u521D\u59CB\u5316\u5171\u4EAB\u72B6\u6001(\u503C = {}) {
 
 // src/constants.js
 var Version = "2026-08-11 14:45:22";
-var Pages\u9759\u6001\u9875\u9762 = "https://edt-pages.github.io";
 var WS\u65E9\u671F\u6570\u636E\u6700\u5927\u5B57\u8282 = 8 * 1024;
 var WS\u65E9\u671F\u6570\u636E\u6700\u5927\u5934\u957F\u5EA62 = Math.ceil(WS\u65E9\u671F\u6570\u636E\u6700\u5927\u5B57\u8282 * 4 / 3) + 4;
 var \u4E0A\u884C\u5408\u5305\u76EE\u6807\u5B57\u8282 = 20 * 1024;
@@ -6424,6 +6423,1125 @@ function \u83B7\u53D6SOCKS5\u8D26\u53F7(address, \u9ED8\u8BA4\u7AEF\u53E3 = 80) 
   return { username, password, hostname, port };
 }
 
+// src/pages/assets.js
+var PANEL_CSS = `
+/* ============ \u8BBE\u8BA1\u4EE4\u724C ============ */
+:root {
+  --bg: #0b0f17;
+  --bg-elev: #131926;
+  --bg-elev-2: #1a2233;
+  --bg-hover: #212b3f;
+  --border: #263148;
+  --border-strong: #35435f;
+  --text: #e6ecf7;
+  --text-dim: #97a3b8;
+  --text-faint: #64708a;
+  --primary: #4f8cff;
+  --primary-hover: #6ba0ff;
+  --primary-dim: rgba(79,140,255,.14);
+  --success: #35d07f;
+  --success-dim: rgba(53,208,127,.14);
+  --warn: #f5a524;
+  --warn-dim: rgba(245,165,36,.14);
+  --danger: #f5484a;
+  --danger-dim: rgba(245,72,74,.14);
+  --radius: 10px;
+  --radius-sm: 7px;
+  --shadow: 0 8px 28px rgba(0,0,0,.36);
+  --mono: ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  --sans: -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB",
+          "Microsoft YaHei",Roboto,Helvetica,Arial,sans-serif;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f6f8fc;
+    --bg-elev: #ffffff;
+    --bg-elev-2: #f0f3f9;
+    --bg-hover: #e8edf6;
+    --border: #dde3ee;
+    --border-strong: #c3ccdd;
+    --text: #16202f;
+    --text-dim: #5a6580;
+    --text-faint: #8b95ab;
+    --primary-dim: rgba(79,140,255,.12);
+    --shadow: 0 8px 28px rgba(20,35,70,.10);
+  }
+}
+
+* { box-sizing: border-box; }
+
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ============ \u5E03\u5C40 ============ */
+.wrap { max-width: 1080px; margin: 0 auto; padding: 28px 20px 64px; }
+.wrap.narrow { max-width: 420px; }
+
+header.top {
+  display: flex; align-items: center; gap: 12px;
+  margin-bottom: 22px; flex-wrap: wrap;
+}
+header.top h1 { font-size: 19px; margin: 0; font-weight: 650; letter-spacing: -.01em; }
+header.top .spacer { flex: 1; }
+header.top .ver { color: var(--text-faint); font-size: 12px; font-family: var(--mono); }
+
+/* ============ \u5361\u7247 ============ */
+.card {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+.card > .head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+  font-weight: 600; font-size: 14px;
+}
+.card > .head .spacer { flex: 1; }
+.card > .body { padding: 18px; }
+.card > .body.tight { padding: 0; }
+
+/* ============ \u6807\u7B7E\u9875 ============ */
+.tabs { display: flex; gap: 4px; margin-bottom: 18px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.tabs button {
+  appearance: none; border: 0; background: none; cursor: pointer;
+  padding: 10px 14px; font: inherit; font-weight: 550; color: var(--text-dim);
+  border-bottom: 2px solid transparent; margin-bottom: -1px; transition: color .15s;
+}
+.tabs button:hover { color: var(--text); }
+.tabs button[aria-selected="true"] { color: var(--primary); border-bottom-color: var(--primary); }
+.tabpanel[hidden] { display: none; }
+
+/* ============ \u8868\u5355 ============ */
+.field { margin-bottom: 16px; }
+.field > label { display: block; font-size: 12.5px; font-weight: 600; color: var(--text-dim); margin-bottom: 6px; }
+.field .hint { font-size: 11.5px; color: var(--text-faint); margin-top: 5px; line-height: 1.5; }
+
+input[type=text], input[type=password], input[type=number], select, textarea {
+  width: 100%; padding: 9px 11px; font: inherit; font-size: 13.5px;
+  color: var(--text); background: var(--bg-elev-2);
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  outline: none; transition: border-color .15s, box-shadow .15s;
+}
+textarea { font-family: var(--mono); font-size: 12.5px; line-height: 1.55; resize: vertical; min-height: 120px; }
+input:focus, select:focus, textarea:focus {
+  border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-dim);
+}
+input::placeholder, textarea::placeholder { color: var(--text-faint); }
+select { cursor: pointer; appearance: none;
+  background-image: linear-gradient(45deg,transparent 50%,var(--text-faint) 50%),linear-gradient(135deg,var(--text-faint) 50%,transparent 50%);
+  background-position: calc(100% - 15px) 50%, calc(100% - 10px) 50%;
+  background-size: 5px 5px,5px 5px; background-repeat: no-repeat; padding-right: 32px;
+}
+
+.grid { display: grid; gap: 0 16px; }
+.grid.two { grid-template-columns: 1fr 1fr; }
+@media (max-width: 620px) { .grid.two { grid-template-columns: 1fr; } }
+
+.row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+/* \u5F00\u5173 */
+.switch { display: inline-flex; align-items: center; gap: 9px; cursor: pointer; user-select: none; margin: 0; }
+.switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+.switch .track {
+  width: 38px; height: 22px; border-radius: 11px; background: var(--border-strong);
+  position: relative; transition: background .18s; flex: none;
+}
+.switch .track::after {
+  content: ''; position: absolute; top: 2px; left: 2px;
+  width: 18px; height: 18px; border-radius: 50%; background: #fff;
+  transition: transform .18s; box-shadow: 0 1px 3px rgba(0,0,0,.3);
+}
+.switch input:checked + .track { background: var(--primary); }
+.switch input:checked + .track::after { transform: translateX(16px); }
+.switch input:focus-visible + .track { box-shadow: 0 0 0 3px var(--primary-dim); }
+
+/* ============ \u6309\u94AE ============ */
+button.btn {
+  appearance: none; cursor: pointer; font: inherit; font-size: 13.5px; font-weight: 600;
+  padding: 9px 16px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong); background: var(--bg-elev-2); color: var(--text);
+  transition: background .15s, border-color .15s, opacity .15s; white-space: nowrap;
+}
+button.btn:hover:not(:disabled) { background: var(--bg-hover); border-color: var(--border-strong); }
+button.btn:disabled { opacity: .5; cursor: not-allowed; }
+button.btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+button.btn.primary:hover:not(:disabled) { background: var(--primary-hover); border-color: var(--primary-hover); }
+button.btn.danger { color: var(--danger); border-color: var(--danger); background: var(--danger-dim); }
+button.btn.danger:hover:not(:disabled) { background: var(--danger); color: #fff; }
+button.btn.ghost { background: none; border-color: transparent; color: var(--text-dim); }
+button.btn.ghost:hover:not(:disabled) { background: var(--bg-hover); color: var(--text); }
+button.btn.sm { padding: 6px 11px; font-size: 12.5px; }
+
+/* ============ \u5FBD\u7AE0 / \u63D0\u793A ============ */
+.badge {
+  display: inline-block; padding: 2px 8px; border-radius: 20px;
+  font-size: 11.5px; font-weight: 600; letter-spacing: .01em;
+  background: var(--bg-elev-2); color: var(--text-dim); border: 1px solid var(--border);
+}
+.badge.ok { background: var(--success-dim); color: var(--success); border-color: transparent; }
+.badge.err { background: var(--danger-dim); color: var(--danger); border-color: transparent; }
+
+.notice {
+  padding: 11px 14px; border-radius: var(--radius-sm); margin-bottom: 14px;
+  font-size: 13px; border: 1px solid transparent;
+}
+.notice.ok { background: var(--success-dim); color: var(--success); }
+.notice.err { background: var(--danger-dim); color: var(--danger); }
+.notice.warn { background: var(--warn-dim); color: var(--warn); }
+.notice[hidden] { display: none; }
+
+/* ============ \u8868\u683C ============ */
+table.data { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.data th, table.data td { padding: 9px 14px; text-align: left; border-bottom: 1px solid var(--border); }
+table.data th { color: var(--text-dim); font-weight: 600; font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; background: var(--bg-elev-2); }
+table.data tr:last-child td { border-bottom: 0; }
+table.data td.mono, table.data td .mono { font-family: var(--mono); font-size: 12px; }
+table.data tbody tr:hover { background: var(--bg-hover); }
+
+.scroll { max-height: 460px; overflow: auto; }
+
+/* ============ \u7EDF\u8BA1\u5361 ============ */
+.stats { display: grid; grid-template-columns: repeat(auto-fit,minmax(160px,1fr)); gap: 12px; margin-bottom: 16px; }
+.stat { background: var(--bg-elev); border: 1px solid var(--border); border-radius: var(--radius); padding: 15px 16px; }
+.stat .k { font-size: 11.5px; color: var(--text-dim); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 5px; }
+.stat .v { font-size: 21px; font-weight: 660; font-family: var(--mono); letter-spacing: -.02em; }
+.stat .v small { font-size: 13px; color: var(--text-faint); font-weight: 500; }
+
+/* ============ \u4EE3\u7801\u5757 ============ */
+pre.code {
+  margin: 0; padding: 13px 15px; background: var(--bg-elev-2);
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  font-family: var(--mono); font-size: 12px; line-height: 1.6;
+  overflow: auto; max-height: 340px; white-space: pre-wrap; word-break: break-all;
+}
+
+/* ============ \u767B\u5F55\u9875 ============ */
+.login-wrap { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+.login-card { width: 100%; max-width: 380px; }
+.login-card .brand { text-align: center; margin-bottom: 24px; }
+.login-card .brand .logo {
+  width: 46px; height: 46px; border-radius: 12px; margin: 0 auto 13px;
+  background: linear-gradient(135deg,var(--primary),#7c5cff);
+  display: grid; place-items: center; color: #fff; font-weight: 700; font-size: 19px;
+  box-shadow: 0 6px 18px rgba(79,140,255,.3);
+}
+.login-card .brand h1 { font-size: 19px; margin: 0 0 5px; font-weight: 650; }
+.login-card .brand p { margin: 0; color: var(--text-dim); font-size: 13px; }
+
+/* ============ \u6742\u9879 ============ */
+.muted { color: var(--text-dim); }
+.faint { color: var(--text-faint); }
+.mono { font-family: var(--mono); }
+.small { font-size: 12px; }
+.right { margin-left: auto; }
+.stack > * + * { margin-top: 12px; }
+.divider { height: 1px; background: var(--border); margin: 18px 0; }
+.empty { padding: 34px 20px; text-align: center; color: var(--text-faint); font-size: 13px; }
+
+@media (max-width: 620px) {
+  .wrap { padding: 18px 14px 48px; }
+  header.top h1 { font-size: 17px; }
+  table.data th, table.data td { padding: 8px 10px; }
+}
+`;
+function page(title, body) {
+  return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<title>${title}</title>
+<style>${PANEL_CSS}</style>
+</head>
+<body>
+${body}
+</body>
+</html>`;
+}
+
+// src/pages/login.js
+var LOGIN_HTML = page("edgetunnel \xB7 \u7BA1\u7406\u767B\u5F55", `
+<div class="login-wrap">
+  <div class="login-card">
+    <div class="brand">
+      <div class="logo">E</div>
+      <h1>edgetunnel</h1>
+      <p>\u8FB9\u7F18\u96A7\u9053\u7BA1\u7406\u9762\u677F</p>
+    </div>
+
+    <div class="card">
+      <div class="body">
+        <div id="msg" class="notice" hidden></div>
+        <div class="field">
+          <label for="pw">\u7BA1\u7406\u5458\u5BC6\u7801</label>
+          <input id="pw" type="password" autocomplete="current-password"
+                 placeholder="\u8BF7\u8F93\u5165 ADMIN \u5BC6\u7801" autofocus>
+        </div>
+        <button id="submit" class="btn primary" style="width:100%">\u767B\u5F55</button>
+        <p class="hint" style="text-align:center;margin:14px 0 0">
+          \u5BC6\u7801\u7531\u73AF\u5883\u53D8\u91CF <code class="mono">ADMIN</code> \u51B3\u5B9A
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var pw = document.getElementById('pw');
+  var btn = document.getElementById('submit');
+  var msg = document.getElementById('msg');
+
+  function notify(text, kind) {
+    msg.textContent = text;
+    msg.className = 'notice ' + (kind || '');
+    msg.hidden = false;
+  }
+
+  async function submit() {
+    if (!pw.value) { notify('\u8BF7\u8F93\u5165\u5BC6\u7801', 'warn'); pw.focus(); return; }
+    btn.disabled = true;
+    btn.textContent = '\u767B\u5F55\u4E2D\u2026';
+    try {
+      const res = await fetch('/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'password=' + encodeURIComponent(pw.value)
+      });
+      const data = await res.json().catch(function () { return {}; });
+      if (data.success) {
+        notify('\u767B\u5F55\u6210\u529F\uFF0C\u6B63\u5728\u8DF3\u8F6C\u2026', 'ok');
+        location.replace('/admin');
+        return;
+      }
+      notify('\u5BC6\u7801\u9519\u8BEF\uFF0C\u8BF7\u91CD\u8BD5', 'err');
+      pw.select();
+    } catch (e) {
+      notify('\u7F51\u7EDC\u5F02\u5E38\uFF1A' + e.message, 'err');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '\u767B\u5F55';
+    }
+  }
+
+  btn.addEventListener('click', submit);
+  pw.addEventListener('keydown', function (e) { if (e.key === 'Enter') submit(); });
+})();
+</script>
+`);
+
+// src/pages/admin.js
+var ADMIN_HTML = page("edgetunnel \xB7 \u7BA1\u7406\u9762\u677F", `
+<div class="wrap">
+  <header class="top">
+    <h1>edgetunnel \u7BA1\u7406\u9762\u677F</h1>
+    <span class="badge" id="badge-node">\u8282\u70B9\u52A0\u8F7D\u4E2D\u2026</span>
+    <span class="spacer"></span>
+    <span class="ver" id="ver"></span>
+    <button class="btn ghost sm" id="btn-refresh">\u5237\u65B0</button>
+    <a class="btn ghost sm" href="/logout">\u9000\u51FA</a>
+  </header>
+
+  <div id="msg" class="notice" hidden></div>
+
+  <nav class="tabs" role="tablist">
+    <button role="tab" aria-selected="true"  data-tab="overview">\u6982\u89C8</button>
+    <button role="tab" aria-selected="false" data-tab="basic">\u57FA\u7840\u914D\u7F6E</button>
+    <button role="tab" aria-selected="false" data-tab="advanced">\u8FDB\u9636\u9009\u9879</button>
+    <button role="tab" aria-selected="false" data-tab="subscribe">\u8BA2\u9605\u751F\u6210</button>
+    <button role="tab" aria-selected="false" data-tab="proxy">\u4F18\u9009\u4E0E\u4EE3\u7406</button>
+    <button role="tab" aria-selected="false" data-tab="integrations">\u901A\u77E5\u4E0E\u7528\u91CF</button>
+    <button role="tab" aria-selected="false" data-tab="logs">\u65E5\u5FD7</button>
+  </nav>
+
+  <!-- \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 \u6982\u89C8 \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 -->
+  <section class="tabpanel" data-panel="overview">
+    <div class="stats">
+      <div class="stat"><div class="k">\u534F\u8BAE</div><div class="v" id="o-proto">\u2014</div></div>
+      <div class="stat"><div class="k">\u4F20\u8F93</div><div class="v" id="o-trans">\u2014</div></div>
+      <div class="stat"><div class="k">UUID</div><div class="v mono" id="o-uuid" style="font-size:14px">\u2014</div></div>
+      <div class="stat"><div class="k">\u8BA2\u9605\u6761\u76EE</div><div class="v" id="o-count">\u2014</div></div>
+    </div>
+
+    <div class="card">
+      <div class="head">\u8282\u70B9\u4FE1\u606F <span class="spacer"></span><span class="badge" id="o-time">\u2014</span></div>
+      <div class="body">
+        <table class="data"><tbody id="o-info"></tbody></table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="head">\u5FEB\u901F\u64CD\u4F5C</div>
+      <div class="body">
+        <div class="row">
+          <button class="btn" id="q-copy-sub">\u590D\u5236\u8BA2\u9605\u5730\u5740</button>
+          <button class="btn" id="q-copy-uuid">\u590D\u5236 UUID</button>
+          <button class="btn danger" id="q-reset">\u91CD\u7F6E\u5168\u90E8\u914D\u7F6E</button>
+        </div>
+        <p class="hint" style="margin-top:12px">
+          \u91CD\u7F6E\u4F1A\u8986\u76D6 KV \u4E2D\u7684 config.json\uFF0C\u4E14\u4E0D\u53EF\u64A4\u9500\u3002
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 \u57FA\u7840\u914D\u7F6E \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 -->
+  <section class="tabpanel" data-panel="basic" hidden>
+    <div class="card">
+      <div class="head">\u8282\u70B9</div>
+      <div class="body">
+        <div class="grid two">
+          <div class="field">
+            <label>\u4E3B\u57DF\u540D HOST</label>
+            <input id="c-host" type="text" placeholder="example.com">
+            <p class="hint">\u8BA2\u9605\u4E2D\u8282\u70B9\u5730\u5740\u4F7F\u7528\u7684\u57DF\u540D\uFF0C\u987B\u5DF2\u7ED1\u5B9A\u81EA\u5B9A\u4E49\u57DF\u3002</p>
+          </div>
+          <div class="field">
+            <label>UUID</label>
+            <input id="c-uuid" type="text" class="mono" placeholder="\u7559\u7A7A\u5219\u7531\u5BC6\u7801\u81EA\u52A8\u6D3E\u751F">
+            <p class="hint">\u586B\u5165\u5219\u5F3A\u5236\u56FA\u5B9A\u5BA2\u6237\u7AEF\u51ED\u636E\uFF1B\u7559\u7A7A\u5219\u7531 ADMIN+KEY \u6D3E\u751F\u3002</p>
+          </div>
+        </div>
+        <div class="field">
+          <label>\u5B8C\u6574\u8282\u70B9\u8DEF\u5F84</label>
+          <input id="c-path" type="text" class="mono" placeholder="/">
+          <p class="hint">WS/gRPC \u7684\u63A5\u5165\u8DEF\u5F84\uFF0C\u5EFA\u8BAE\u4F7F\u7528\u8F83\u957F\u7684\u968F\u673A\u8DEF\u5F84\u3002</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="head">\u534F\u8BAE\u4E0E\u4F20\u8F93</div>
+      <div class="body">
+        <div class="grid two">
+          <div class="field">
+            <label>\u534F\u8BAE\u7C7B\u578B</label>
+            <select id="c-proto">
+              <option value="vless">VLESS</option>
+              <option value="trojan">Trojan</option>
+              <option value="ss">Shadowsocks</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>\u4F20\u8F93\u534F\u8BAE</label>
+            <select id="c-trans">
+              <option value="ws">WebSocket</option>
+              <option value="grpc">gRPC</option>
+              <option value="httpupgrade">HTTPUpgrade</option>
+              <option value="xhttp">XHTTP\uFF08\u53C9HTTP\uFF09</option>
+            </select>
+          </div>
+        </div>
+        <div class="grid two">
+          <div class="field">
+            <label>gRPC \u6A21\u5F0F</label>
+            <select id="c-grpcmode">
+              <option value="gun">gun</option>
+              <option value="multi">multi</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Shadowsocks \u52A0\u5BC6\u65B9\u5F0F</label>
+            <select id="c-ssmethod">
+              <option value="aes-128-gcm">aes-128-gcm</option>
+              <option value="aes-256-gcm">aes-256-gcm</option>
+            </select>
+            <p class="hint">\u4EC5\u5728\u534F\u8BAE\u4E3A Shadowsocks \u65F6\u751F\u6548\u3002</p>
+          </div>
+        </div>
+        <div class="row">
+          <label class="switch"><input type="checkbox" id="c-sstls"><span class="track"></span>Shadowsocks \u542F\u7528 TLS</label>
+          <label class="switch"><input type="checkbox" id="c-skipcert"><span class="track"></span>\u8DF3\u8FC7\u8BC1\u4E66\u9A8C\u8BC1</label>
+          <label class="switch"><input type="checkbox" id="c-0rtt"><span class="track"></span>\u542F\u7528 0-RTT</label>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="head">\u8BA2\u9605\u8F93\u51FA</div>
+      <div class="body">
+        <div class="grid two">
+          <div class="field">
+            <label>\u8282\u70B9\u5907\u6CE8\u540D</label>
+            <input id="c-subname" type="text" placeholder="EDT">
+          </div>
+          <div class="field">
+            <label>TLS \u5206\u7247</label>
+            <select id="c-frag">
+              <option value="">\u4E0D\u542F\u7528</option>
+              <option value="Shadowrocket">Shadowrocket</option>
+              <option value="v2rayN">v2rayN</option>
+            </select>
+          </div>
+        </div>
+        <div class="row">
+          <label class="switch"><input type="checkbox" id="c-b64"><span class="track"></span>Base64 \u7F16\u7801\u8BA2\u9605</label>
+          <label class="switch"><input type="checkbox" id="c-sort"><span class="track"></span>\u6309\u540D\u79F0\u6392\u5E8F</label>
+          <label class="switch"><input type="checkbox" id="c-randpath"><span class="track"></span>\u968F\u673A\u8DEF\u5F84\u4F2A\u88C5</label>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 \u8FDB\u9636\u9009\u9879 \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 -->
+  <section class="tabpanel" data-panel="advanced" hidden>
+    <div class="card">
+      <div class="head">ECH\uFF08\u52A0\u5BC6\u5BA2\u6237\u7AEF\u95EE\u5019\uFF09</div>
+      <div class="body">
+        <div class="row" style="margin-bottom:14px">
+          <label class="switch"><input type="checkbox" id="c-ech"><span class="track"></span>\u542F\u7528 ECH</label>
+        </div>
+        <div class="grid two">
+          <div class="field">
+            <label>ECH SNI</label>
+            <input id="c-echsni" type="text" placeholder="cloudflare-ech.com">
+          </div>
+          <div class="field">
+            <label>ECH DNS</label>
+            <input id="c-echdns" type="text" placeholder="https://dns.alidns.com/dns-query">
+          </div>
+        </div>
+        <p class="hint">ECH \u53EF\u9690\u85CF\u771F\u5B9E SNI\uFF0C\u9700\u8981\u5BA2\u6237\u7AEF\u4E0E\u670D\u52A1\u7AEF\u540C\u65F6\u652F\u6301\u3002</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="head">\u53CD\u4EE3\u8DEF\u5F84\u6A21\u677F</div>
+      <div class="body">
+        <p class="hint" style="margin-top:0">
+          \u7559\u7A7A\u5219\u4F7F\u7528\u5185\u7F6E\u6A21\u677F\u3002\u8FD9\u4E9B\u503C\u4F1A\u4F5C\u4E3A <code class="mono">{{IP:PORT}}</code> \u7684\u524D\u7F00\u6CE8\u5165\u8BA2\u9605\u8282\u70B9\u8DEF\u5F84\u3002
+        </p>
+        <div id="proxy-templates"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 \u8BA2\u9605\u751F\u6210 \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 -->
+  <section class="tabpanel" data-panel="subscribe" hidden>
+    <div class="card">
+      <div class="head">\u8BA2\u9605\u5730\u5740</div>
+      <div class="body">
+        <div class="field">
+          <label>\u5B8C\u6574\u8BA2\u9605\u94FE\u63A5</label>
+          <input id="sub-url" type="text" class="mono" readonly>
+          <p class="hint">\u5BA2\u6237\u7AEF\u4F1A\u81EA\u52A8\u6309 UA \u8BC6\u522B\u683C\u5F0F\uFF08Clash / Sing-box / Surge / v2rayN \u7B49\uFF09\u3002</p>
+        </div>
+        <div class="row">
+          <button class="btn" id="s-copy">\u590D\u5236</button>
+          <button class="btn" id="s-open">\u5728\u65B0\u7A97\u53E3\u6253\u5F00</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="head">\u9884\u89C8</div>
+      <div class="body tight"><pre class="code" id="sub-preview">\u52A0\u8F7D\u4E2D\u2026</pre></div>
+    </div>
+  </section>
+
+  <!-- \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 \u4F18\u9009\u4E0E\u4EE3\u7406 \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 -->
+  <section class="tabpanel" data-panel="proxy" hidden>
+    <div class="card">
+      <div class="head">\u4F18\u9009 IP \u5217\u8868 <span class="spacer"></span><span class="badge" id="ip-count">\u2014</span></div>
+      <div class="body">
+        <p class="hint" style="margin-top:0">
+          \u6BCF\u884C\u4E00\u4E2A\uFF0C\u652F\u6301 <code class="mono">IP:\u7AEF\u53E3#\u5907\u6CE8</code>\u3001<code class="mono">https://\u4F18\u9009API</code>\u3001
+          <code class="mono">sub://\u4F18\u9009API</code>\uFF0C\u4EE5\u53CA <code class="mono">\u57DF\u540D</code>\uFF08<code class="mono">*</code> \u4F1A\u88AB\u66FF\u6362\u4E3A\u968F\u673A\u5B57\u7B26\uFF09\u3002
+        </p>
+        <textarea id="p-ips" placeholder="1.1.1.1:443&#10;https://example.com/api"></textarea>
+        <div class="row" style="margin-top:12px">
+          <button class="btn primary" id="p-save">\u4FDD\u5B58</button>
+          <button class="btn" id="p-load">\u91CD\u65B0\u8F7D\u5165</button>
+          <span class="faint small" id="p-hint"></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="head">\u4F18\u9009 API \u6821\u9A8C</div>
+      <div class="body">
+        <div class="row">
+          <input id="a-url" type="text" placeholder="https://example.com/api.txt" style="flex:1;min-width:220px">
+          <input id="a-port" type="text" placeholder="443" style="width:100px">
+          <button class="btn" id="a-test">\u6D4B\u8BD5</button>
+        </div>
+        <div id="a-result" class="stack" style="margin-top:14px"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="head">\u4EE3\u7406\u8FDE\u901A\u6027\u68C0\u6D4B</div>
+      <div class="body">
+        <div class="row">
+          <select id="c-proto2" style="width:130px">
+            <option value="socks5">SOCKS5</option>
+            <option value="http">HTTP</option>
+            <option value="https">HTTPS</option>
+            <option value="turn">TURN</option>
+            <option value="sstp">SSTP</option>
+          </select>
+          <input id="c-addr" type="text" class="mono" placeholder="user:pass@host:port" style="flex:1;min-width:200px">
+          <button class="btn" id="c-run">\u68C0\u6D4B</button>
+        </div>
+        <div id="c-result" class="stack" style="margin-top:14px"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 \u901A\u77E5\u4E0E\u7528\u91CF \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 -->
+  <section class="tabpanel" data-panel="integrations" hidden>
+    <div class="card">
+      <div class="head">Telegram \u901A\u77E5</div>
+      <div class="body">
+        <div class="grid two">
+          <div class="field">
+            <label>Bot Token</label>
+            <input id="t-token" type="text" class="mono" placeholder="123456:ABC-DEF">
+          </div>
+          <div class="field">
+            <label>Chat ID</label>
+            <input id="t-chat" type="text" class="mono" placeholder="-1001234567890">
+          </div>
+        </div>
+        <div class="row">
+          <button class="btn primary" id="t-save">\u4FDD\u5B58</button>
+          <button class="btn danger" id="t-clear">\u6E05\u9664</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="head">Cloudflare \u51ED\u636E</div>
+      <div class="body">
+        <p class="hint" style="margin-top:0">\u7528\u4E8E\u67E5\u8BE2\u8D26\u6237\u7528\u91CF\u3002\u4E09\u9009\u4E00\u4FDD\u5B58\u5373\u53EF\u3002</p>
+        <div class="grid two">
+          <div class="field">
+            <label>Account ID</label>
+            <input id="cf-account" type="text" class="mono" placeholder="32 \u4F4D\u5341\u516D\u8FDB\u5236">
+          </div>
+          <div class="field">
+            <label>API Token</label>
+            <input id="cf-token" type="text" class="mono" placeholder="CF API Token">
+          </div>
+        </div>
+        <div class="divider"></div>
+        <div class="field">
+          <label>Email\uFF08\u4E0E Global API Key \u642D\u914D\uFF09</label>
+          <input id="cf-email" type="text" placeholder="you@example.com">
+        </div>
+        <div class="field">
+          <label>Global API Key</label>
+          <input id="cf-key" type="password" class="mono" placeholder="Global API Key">
+        </div>
+        <div class="row">
+          <button class="btn primary" id="cf-save-token">\u4FDD\u5B58 Token \u65B9\u5F0F</button>
+          <button class="btn" id="cf-save-key">\u4FDD\u5B58 Key \u65B9\u5F0F</button>
+        </div>
+        <div id="cf-result" class="stack" style="margin-top:14px"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 \u65E5\u5FD7 \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 -->
+  <section class="tabpanel" data-panel="logs" hidden>
+    <div class="card">
+      <div class="head">\u8BF7\u6C42\u65E5\u5FD7 <span class="spacer"></span><span class="badge" id="log-count">\u2014</span></div>
+      <div class="body tight scroll">
+        <table class="data">
+          <thead><tr><th>\u65F6\u95F4</th><th>\u7C7B\u578B</th><th>IP</th><th>UA</th><th>\u5907\u6CE8</th></tr></thead>
+          <tbody id="log-body"></tbody>
+        </table>
+        <div class="empty" id="log-empty">\u6682\u65E0\u65E5\u5FD7</div>
+      </div>
+    </div>
+  </section>
+
+  <div class="row" style="margin-top:20px">
+    <button class="btn primary" id="save-main" style="min-width:150px">\u4FDD\u5B58\u914D\u7F6E</button>
+    <span class="faint small">\u4FEE\u6539\u540E\u9700\u4FDD\u5B58\uFF1B\u8282\u70B9\u8BA2\u9605\u4F1A\u5728\u4E0B\u6B21\u62C9\u53D6\u65F6\u751F\u6548\u3002</span>
+  </div>
+</div>
+
+<script>
+(function () {
+'use strict';
+
+var CFG = null;               // /admin/config.json \u7684\u5185\u5BB9
+var MSG_TIMER = null;
+
+/* ---------- \u5DE5\u5177 ---------- */
+function $(id) { return document.getElementById(id); }
+
+/** \u628A ISO \u65F6\u95F4\u6233\u538B\u6210\u300CMM-DD HH:mm\u300D\u4EE5\u4FBF\u5728\u5FBD\u7AE0\u91CC\u663E\u793A */
+function \u683C\u5F0F\u5316\u65F6\u95F4(iso) {
+  if (!iso) return '\u2014';
+  var d = new Date(iso);
+  if (isNaN(d)) return String(iso).slice(0, 16).replace('T', ' ');
+  var p = function (n) { return n < 10 ? '0' + n : '' + n; };
+  return (d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+}
+
+function notify(text, kind) {
+  var el = $('msg');
+  el.textContent = text;
+  el.className = 'notice ' + (kind || '');
+  el.hidden = false;
+  if (MSG_TIMER) clearTimeout(MSG_TIMER);
+  MSG_TIMER = setTimeout(function () { el.hidden = true; }, kind === 'err' ? 8000 : 3000);
+}
+
+async function api(url, opts) {
+  var res = await fetch(url, Object.assign({ credentials: 'same-origin' }, opts));
+  var ct = res.headers.get('content-type') || '';
+  if (ct.indexOf('json') >= 0) return await res.json();
+  var text = await res.text();
+  return { _text: text, _status: res.status };
+}
+
+function jfetch(url, method, body) {
+  return api(url, {
+    method: method,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+}
+
+async function copy(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    notify('\u5DF2\u590D\u5236\u5230\u526A\u8D34\u677F', 'ok');
+  } catch (e) {
+    // \u975E\u5B89\u5168\u4E0A\u4E0B\u6587\u4E0B clipboard API \u4E0D\u53EF\u7528\uFF0C\u9000\u56DE\u9009\u4E2D\u63D0\u793A
+    var ta = document.createElement('textarea');
+    ta.value = text; document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); notify('\u5DF2\u590D\u5236', 'ok'); }
+    catch (_) { notify('\u590D\u5236\u5931\u8D25\uFF0C\u8BF7\u624B\u52A8\u9009\u62E9', 'warn'); }
+    document.body.removeChild(ta);
+  }
+}
+
+/* ---------- \u6807\u7B7E\u9875 ---------- */
+document.querySelectorAll('.tabs button').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    var name = btn.dataset.tab;
+    document.querySelectorAll('.tabs button').forEach(function (b) {
+      b.setAttribute('aria-selected', String(b === btn));
+    });
+    document.querySelectorAll('.tabpanel').forEach(function (p) {
+      p.hidden = p.dataset.panel !== name;
+    });
+    if (name === 'logs') loadLogs();
+    if (name === 'subscribe') loadSubPreview();
+  });
+});
+
+/* ---------- \u52A0\u8F7D\u914D\u7F6E ---------- */
+async function loadConfig() {
+  try {
+    const data = await api('/admin/config.json');
+    // \u63A5\u53E3\u5F02\u5E38\u65F6\u4E0D\u8981\u6E05\u7A7A\u5DF2\u6709\u5185\u5BB9\uFF0C\u907F\u514D\u4E00\u6B21\u7F51\u7EDC\u6296\u52A8\u628A\u9762\u677F\u6574\u4E2A\u6E05\u96F6
+    if (data && typeof data === 'object' && !data.error) {
+      CFG = data;
+      render();
+    } else {
+      notify('\u914D\u7F6E\u683C\u5F0F\u5F02\u5E38\uFF1A' + (data && data.error ? data.error : '\u672A\u77E5'), 'err');
+    }
+  } catch (e) {
+    notify('\u52A0\u8F7D\u914D\u7F6E\u5931\u8D25\uFF1A' + e.message + (CFG ? '\uFF08\u4FDD\u7559\u5F53\u524D\u663E\u793A\uFF09' : ''), 'err');
+  }
+}
+
+function val(id, v) {
+  var el = $(id);
+  if (!el) return;
+  if (el.type === 'checkbox') el.checked = !!v;
+  else el.value = v === undefined || v === null ? '' : v;
+}
+
+function readConfig() {
+  if (!CFG) CFG = {};
+  CFG.HOST = $('c-host').value.trim();
+  CFG.HOSTS = $('c-host').value.trim() ? [$('c-host').value.trim()] : [];
+  CFG.UUID = $('c-uuid').value.trim();
+  CFG.PATH = $('c-path').value.trim() || '/';
+  CFG.\u534F\u8BAE\u7C7B\u578B = $('c-proto').value;
+  CFG.\u4F20\u8F93\u534F\u8BAE = $('c-trans').value;
+  CFG.gRPC\u6A21\u5F0F = $('c-grpcmode').value;
+  CFG.\u8DF3\u8FC7\u8BC1\u4E66\u9A8C\u8BC1 = $('c-skipcert').checked;
+  CFG.\u542F\u75280RTT = $('c-0rtt').checked;
+  CFG.\u968F\u673A\u8DEF\u5F84 = $('c-randpath').checked;
+  CFG.TLS\u5206\u7247 = $('c-frag').value || null;
+
+  CFG.ECH = $('c-ech').checked;
+  CFG.ECHConfig = {
+    SNI: $('c-echsni').value.trim() || 'cloudflare-ech.com',
+    DNS: $('c-echdns').value.trim() || 'https://dns.alidns.com/dns-query'
+  };
+
+  CFG.\u4F18\u9009\u8BA2\u9605\u751F\u6210 = CFG.\u4F18\u9009\u8BA2\u9605\u751F\u6210 || {};
+  CFG.\u4F18\u9009\u8BA2\u9605\u751F\u6210.SUBNAME = $('c-subname').value.trim();
+
+  CFG.\u8BA2\u9605\u8F6C\u6362\u914D\u7F6E = CFG.\u8BA2\u9605\u8F6C\u6362\u914D\u7F6E || {};
+  CFG.\u8BA2\u9605\u8F6C\u6362\u914D\u7F6E.SORT = $('c-sort').checked;
+
+  CFG.SS = CFG.SS || {};
+  CFG.SS.\u52A0\u5BC6\u65B9\u5F0F = $('c-ssmethod').value;
+  CFG.SS.TLS = $('c-sstls').checked;
+  return CFG;
+}
+
+function render() {
+  if (!CFG) return;
+  val('c-host', CFG.HOST);
+  val('c-uuid', CFG.UUID);
+  val('c-path', CFG.PATH);
+  val('c-proto', CFG.\u534F\u8BAE\u7C7B\u578B);
+  val('c-trans', CFG.\u4F20\u8F93\u534F\u8BAE);
+  val('c-grpcmode', CFG.gRPC\u6A21\u5F0F);
+  val('c-ssmethod', (CFG.SS || {}).\u52A0\u5BC6\u65B9\u5F0F);
+  val('c-sstls', (CFG.SS || {}).TLS);
+  val('c-skipcert', CFG.\u8DF3\u8FC7\u8BC1\u4E66\u9A8C\u8BC1);
+  val('c-0rtt', CFG.\u542F\u75280RTT);
+  val('c-randpath', CFG.\u968F\u673A\u8DEF\u5F84);
+  val('c-subname', (CFG.\u4F18\u9009\u8BA2\u9605\u751F\u6210 || {}).SUBNAME);
+  val('c-frag', CFG.TLS\u5206\u7247);
+  val('c-sort', (CFG.\u8BA2\u9605\u8F6C\u6362\u914D\u7F6E || {}).SORT);
+  val('c-ech', CFG.ECH);
+  val('c-echsni', (CFG.ECHConfig || {}).SNI);
+  val('c-echdns', (CFG.ECHConfig || {}).DNS);
+  renderTemplates();
+  renderOverview();
+  buildSubUrl();
+}
+
+function renderOverview() {
+  $('o-proto').textContent = CFG.\u534F\u8BAE\u7C7B\u578B || '\u2014';
+  $('o-trans').textContent = CFG.\u4F20\u8F93\u534F\u8BAE || '\u2014';
+  $('o-uuid').textContent = CFG.UUID || '\uFF08\u81EA\u52A8\u6D3E\u751F\uFF09';
+
+  var ips = ((CFG.\u4F18\u9009\u8BA2\u9605\u751F\u6210 || {}).\u672C\u5730IP\u5E93 || {});
+  $('o-count').textContent = (ips.\u968F\u673A\u6570\u91CF || 0);
+  $('o-time').textContent = \u683C\u5F0F\u5316\u65F6\u95F4(CFG.TIME);
+  $('o-time').title = CFG.TIME || '';
+
+  var rows = [
+    ['\u4E3B\u57DF\u540D', CFG.HOST || '\u2014'],
+    ['\u8282\u70B9\u8DEF\u5F84', CFG.PATH || '/'],
+    ['\u8282\u70B9\u540D\u79F0', (CFG.\u4F18\u9009\u8BA2\u9605\u751F\u6210 || {}).SUBNAME || '\u2014'],
+    ['ECH', CFG.ECH ? '\u5DF2\u542F\u7528' : '\u672A\u542F\u7528'],
+    ['0-RTT', CFG.\u542F\u75280RTT ? '\u5DF2\u542F\u7528' : '\u672A\u542F\u7528'],
+    ['\u968F\u673A\u8DEF\u5F84', CFG.\u968F\u673A\u8DEF\u5F84 ? '\u5DF2\u542F\u7528' : '\u672A\u542F\u7528'],
+    ['\u914D\u7F6E\u751F\u6210', CFG.TIME || '\u2014'],
+    ['\u52A0\u8F7D\u8017\u65F6', CFG.\u52A0\u8F7D\u65F6\u95F4 || '\u2014']
+  ];
+  $('o-info').innerHTML = rows.map(function (r) {
+    return '<tr><th style="width:150px">' + r[0] + '</th><td class="mono">' +
+           String(r[1]).replace(/[<>&]/g, function (m) { return { '<': '&lt;', '>': '&gt;', '&': '&amp;' }[m]; }) +
+           '</td></tr>';
+  }).join('');
+}
+
+function renderTemplates() {
+  var t = (CFG.\u53CD\u4EE3 || {}).\u8DEF\u5F84\u6A21\u677F;
+  var box = $('proxy-templates');
+  if (!t) { box.innerHTML = '<p class="faint small">\u4F7F\u7528\u5185\u7F6E\u6A21\u677F</p>'; return; }
+  var labels = {
+    proxyip: '\u53CD\u4EE3 IP', SOCKS5: 'SOCKS5', HTTP: 'HTTP', HTTPS: 'HTTPS',
+    TURN: 'TURN', SSTP: 'SSTP'
+  };
+  box.innerHTML = Object.keys(labels).map(function (k) {
+    var v = t[k];
+    if (v && typeof v === 'object') v = v.\u5168\u5C40 || v.\u6807\u51C6 || '';
+    return '<div class="field"><label>' + labels[k] + '</label>' +
+           '<input type="text" class="mono" data-tpl="' + k + '" value="' +
+           String(v || '').replace(/"/g, '&quot;') + '"></div>';
+  }).join('');
+  box.querySelectorAll('input[data-tpl]').forEach(function (inp) {
+    inp.addEventListener('change', function () {
+      readConfig();
+      var k = inp.dataset.tpl;
+      CFG.\u53CD\u4EE3 = CFG.\u53CD\u4EE3 || {}; CFG.\u53CD\u4EE3.\u8DEF\u5F84\u6A21\u677F = CFG.\u53CD\u4EE3.\u8DEF\u5F84\u6A21\u677F || {};
+      if (typeof CFG.\u53CD\u4EE3.\u8DEF\u5F84\u6A21\u677F[k] === 'object' && CFG.\u53CD\u4EE3.\u8DEF\u5F84\u6A21\u677F[k]) {
+        CFG.\u53CD\u4EE3.\u8DEF\u5F84\u6A21\u677F[k].\u5168\u5C40 = inp.value;
+      } else {
+        CFG.\u53CD\u4EE3.\u8DEF\u5F84\u6A21\u677F[k] = inp.value;
+      }
+    });
+  });
+}
+
+/* ---------- \u8BA2\u9605 ---------- */
+function buildSubUrl() {
+  var host = ($('c-host').value || location.hostname);
+  var url = location.origin + '/sub?token=' + encodeURIComponent(
+    (CFG && CFG.__token) || ''
+  );
+  // token \u7531\u540E\u7AEF\u6821\u9A8C\uFF1B\u6B64\u5904\u5C55\u793A host \u90E8\u5206\u5373\u53EF\uFF0C\u5B8C\u6574 token \u9700\u767B\u5F55\u6001\u4E0B\u65B9\u53EF\u83B7\u53D6
+  $('sub-url').value = location.origin + '/sub?token=<\u767B\u5F55\u540E\u81EA\u52A8\u751F\u6210>';
+}
+
+async function loadSubPreview() {
+  var pre = $('sub-preview');
+  try {
+    var r = await api('/sub');
+    if (r._text !== undefined) {
+      pre.textContent = '\uFF08\u9700\u8981\u6709\u6548 token\uFF0C\u8BF7\u76F4\u63A5\u8BBF\u95EE\u8BA2\u9605\u5730\u5740\uFF09';
+      return;
+    }
+    pre.textContent = JSON.stringify(r, null, 2).slice(0, 4000);
+  } catch (e) {
+    pre.textContent = '\u9884\u89C8\u5931\u8D25\uFF1A' + e.message;
+  }
+}
+
+/* ---------- \u4FDD\u5B58 ---------- */
+$('save-main').addEventListener('click', async function () {
+  var btn = this;
+  readConfig();
+  if (!CFG.UUID || !CFG.HOST) {
+    notify('HOST \u4E0E UUID \u81F3\u5C11\u8981\u586B\u5199\u4E00\u9879\uFF08UUID \u7559\u7A7A\u8868\u793A\u81EA\u52A8\u6D3E\u751F\uFF09', 'warn');
+    return;
+  }
+  btn.disabled = true; btn.textContent = '\u4FDD\u5B58\u4E2D\u2026';
+  try {
+    var r = await jfetch('/admin/config.json', 'POST', CFG);
+    if (r.success) { notify('\u914D\u7F6E\u5DF2\u4FDD\u5B58', 'ok'); loadConfig(); }
+    else notify('\u4FDD\u5B58\u5931\u8D25\uFF1A' + (r.error || '\u672A\u77E5\u9519\u8BEF'), 'err');
+  } catch (e) {
+    notify('\u4FDD\u5B58\u5931\u8D25\uFF1A' + e.message, 'err');
+  } finally {
+    btn.disabled = false; btn.textContent = '\u4FDD\u5B58\u914D\u7F6E';
+  }
+});
+
+$('q-reset').addEventListener('click', async function () {
+  if (!confirm('\u786E\u5B9A\u8981\u91CD\u7F6E\u5168\u90E8\u914D\u7F6E\u5417\uFF1F\u6B64\u64CD\u4F5C\u4E0D\u53EF\u64A4\u9500\u3002')) return;
+  try {
+    CFG = await api('/admin/init');
+    notify('\u914D\u7F6E\u5DF2\u91CD\u7F6E\u4E3A\u9ED8\u8BA4\u503C', 'ok');
+    render();
+  } catch (e) { notify('\u91CD\u7F6E\u5931\u8D25\uFF1A' + e.message, 'err'); }
+});
+
+$('btn-refresh').addEventListener('click', function () { loadConfig(); notify('\u5DF2\u5237\u65B0', 'ok'); });
+$('q-copy-sub').addEventListener('click', function () { copy($('sub-url').value); });
+$('q-copy-uuid').addEventListener('click', function () { copy($('c-uuid').value || ''); });
+$('s-copy').addEventListener('click', function () { copy($('sub-url').value); });
+$('s-open').addEventListener('click', function () { window.open('/sub', '_blank'); });
+
+/* ---------- \u4F18\u9009 IP ---------- */
+async function loadIPs() {
+  try {
+    var r = await api('/admin/ADD.txt');
+    $('p-ips').value = r._text === 'null' ? '' : (r._text || '');
+    var n = $('p-ips').value.split('\\n').filter(function (x) { return x.trim(); }).length;
+    $('ip-count').textContent = n + ' \u6761';
+    $('p-hint').textContent = '';
+  } catch (e) { $('p-hint').textContent = '\u8BFB\u53D6\u5931\u8D25\uFF1A' + e.message; }
+}
+$('p-load').addEventListener('click', loadIPs);
+$('p-save').addEventListener('click', async function () {
+  var btn = this; btn.disabled = true;
+  try {
+    await fetch('/admin/ADD.txt', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'text/plain' },
+      body: $('p-ips').value
+    });
+    notify('\u4F18\u9009 IP \u5DF2\u4FDD\u5B58', 'ok');
+    loadIPs();
+  } catch (e) { notify('\u4FDD\u5B58\u5931\u8D25\uFF1A' + e.message, 'err'); }
+  finally { btn.disabled = false; }
+});
+
+/* ---------- \u4F18\u9009 API \u6821\u9A8C ---------- */
+$('a-test').addEventListener('click', async function () {
+  var box = $('a-result');
+  var url = $('a-url').value.trim();
+  if (!url) { notify('\u8BF7\u8F93\u5165\u4F18\u9009 API \u5730\u5740', 'warn'); return; }
+  box.innerHTML = '<div class="notice">\u6D4B\u8BD5\u4E2D\u2026</div>';
+  try {
+    var r = await api('/admin/getADDAPI?url=' + encodeURIComponent(url) +
+                       '&port=' + encodeURIComponent($('a-port').value || '443'));
+    if (!r.success) { box.innerHTML = '<div class="notice err">' + (r.msg || '\u6D4B\u8BD5\u5931\u8D25') + '</div>'; return; }
+    var ips = (r.data || []).slice(0, 40);
+    box.innerHTML = '<div class="notice ok">\u6210\u529F\uFF0C\u8FD4\u56DE ' + (r.data || []).length + ' \u6761</div>' +
+      '<pre class="code">' + ips.join('\\n').replace(/[<>&]/g, '') + '</pre>';
+  } catch (e) { box.innerHTML = '<div class="notice err">' + e.message + '</div>'; }
+});
+
+/* ---------- \u4EE3\u7406\u68C0\u6D4B ---------- */
+$('c-run').addEventListener('click', async function () {
+  var box = $('c-result');
+  var proto = $('c-proto2').value;
+  var addr = $('c-addr').value.trim();
+  if (!addr) { notify('\u8BF7\u8F93\u5165\u4EE3\u7406\u5730\u5740', 'warn'); return; }
+  box.innerHTML = '<div class="notice">\u68C0\u6D4B\u4E2D\u2026</div>';
+  try {
+    var r = await api('/admin/check?' + proto + '=' + encodeURIComponent(addr));
+    if (r.success) {
+      box.innerHTML = '<table class="data"><tbody>' +
+        '<tr><th>\u4EE3\u7406</th><td class="mono">' + r.proxy + '</td></tr>' +
+        '<tr><th>\u51FA\u53E3 IP</th><td class="mono">' + r.ip + '</td></tr>' +
+        '<tr><th>\u5730\u533A</th><td>' + r.loc + '</td></tr>' +
+        '<tr><th>\u8017\u65F6</th><td>' + r.responseTime + ' ms</td></tr>' +
+        '</tbody></table>';
+    } else {
+      box.innerHTML = '<div class="notice err">' + (r.error || '\u68C0\u6D4B\u5931\u8D25') + '</div>';
+    }
+  } catch (e) { box.innerHTML = '<div class="notice err">' + e.message + '</div>'; }
+});
+
+/* ---------- TG ---------- */
+$('t-save').addEventListener('click', async function () {
+  var body = { BotToken: $('t-token').value.trim(), ChatID: $('t-chat').value.trim() };
+  if (!body.BotToken || !body.ChatID) { notify('\u8BF7\u586B\u5199 Bot Token \u4E0E Chat ID', 'warn'); return; }
+  var r = await jfetch('/admin/tg.json', 'POST', body);
+  notify(r.success ? 'TG \u914D\u7F6E\u5DF2\u4FDD\u5B58' : ('\u4FDD\u5B58\u5931\u8D25\uFF1A' + r.error), r.success ? 'ok' : 'err');
+});
+$('t-clear').addEventListener('click', async function () {
+  if (!confirm('\u786E\u5B9A\u6E05\u9664 Telegram \u914D\u7F6E\uFF1F')) return;
+  var r = await jfetch('/admin/tg.json', 'POST', { init: true });
+  notify(r.success ? '\u5DF2\u6E05\u9664' : ('\u5931\u8D25\uFF1A' + r.error), r.success ? 'ok' : 'err');
+  $('t-token').value = ''; $('t-chat').value = '';
+});
+
+/* ---------- CF ---------- */
+$('cf-save-token').addEventListener('click', async function () {
+  var body = { AccountID: $('cf-account').value.trim(), APIToken: $('cf-token').value.trim() };
+  if (!body.AccountID || !body.APIToken) { notify('\u8BF7\u586B\u5199 Account ID \u4E0E API Token', 'warn'); return; }
+  var r = await jfetch('/admin/cf.json', 'POST', body);
+  notify(r.success ? '\u5DF2\u4FDD\u5B58 Token \u65B9\u5F0F' : ('\u5931\u8D25\uFF1A' + r.error), r.success ? 'ok' : 'err');
+});
+$('cf-save-key').addEventListener('click', async function () {
+  var body = { Email: $('cf-email').value.trim(), GlobalAPIKey: $('cf-key').value };
+  if (!body.Email || !body.GlobalAPIKey) { notify('\u8BF7\u586B\u5199 Email \u4E0E Global API Key', 'warn'); return; }
+  var r = await jfetch('/admin/cf.json', 'POST', body);
+  if (r.success) { notify('\u5DF2\u4FDD\u5B58 Key \u65B9\u5F0F', 'ok'); $('cf-key').value = ''; }
+  else notify('\u5931\u8D25\uFF1A' + r.error, 'err');
+});
+
+/* ---------- \u65E5\u5FD7 ---------- */
+async function loadLogs() {
+  var body = $('log-body'), empty = $('log-empty');
+  try {
+    var logs = await api('/admin/log.json');
+    if (!Array.isArray(logs) || !logs.length) { empty.hidden = false; return; }
+    empty.hidden = true;
+    $('log-count').textContent = logs.length + ' \u6761';
+    body.innerHTML = logs.slice(0, 300).map(function (l) {
+      var esc = function (s) {
+        return String(s === undefined || s === null ? '' : s)
+          .replace(/[<>&"]/g, function (m) {
+            return { '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[m];
+          });
+      };
+      return '<tr><td class="mono small">' + esc(\u683C\u5F0F\u5316\u65F6\u95F4(l.datetime || l.time || '')) + '</td>' +
+             '<td><span class="badge">' + esc(l.reqType || l.type || '') + '</span></td>' +
+             '<td class="mono small">' + esc(l.ip || '') + '</td>' +
+             '<td class="small faint">' + esc((l.ua || '').slice(0, 40)) + '</td>' +
+             '<td class="small muted">' + esc(l.remarks || l.note || '') + '</td></tr>';
+    }).join('');
+  } catch (e) {
+    empty.hidden = false;
+    empty.textContent = '\u65E5\u5FD7\u52A0\u8F7D\u5931\u8D25\uFF1A' + e.message;
+  }
+}
+
+/* ---------- \u521D\u59CB\u5316 ---------- */
+loadConfig().then(function () {
+  $('ver').textContent = CFG && CFG.VERSION ? ('v' + CFG.VERSION) : '';
+  $('badge-node').textContent = (CFG && CFG.HOST) || '\u672A\u914D\u7F6E';
+  $('badge-node').className = CFG && CFG.HOST ? 'badge ok' : 'badge err';
+  loadIPs();
+});
+})();
+</script>
+`);
+
+// src/pages/errors.js
+function noticePage(title, badge, heading, desc, hint) {
+  return page(title, `
+<div class="login-wrap">
+  <div class="login-card" style="max-width:440px">
+    <div class="brand">
+      <div class="logo">!</div>
+      <h1>${heading}</h1>
+      <p>${desc}</p>
+    </div>
+    <div class="card">
+      <div class="body">
+        <div class="row" style="justify-content:center;margin-bottom:14px">
+          <span class="badge ${badge.kind}">${badge.text}</span>
+        </div>
+        <div style="font-size:13px;line-height:1.75">${hint}</div>
+      </div>
+    </div>
+  </div>
+</div>`);
+}
+var NO_ADMIN_HTML = noticePage(
+  "edgetunnel \xB7 \u672A\u5B8C\u6210\u914D\u7F6E",
+  { kind: "err", text: "\u672A\u914D\u7F6E" },
+  "\u5C1A\u672A\u8BBE\u7F6E\u7BA1\u7406\u5458\u5BC6\u7801",
+  "Worker \u68C0\u6D4B\u5230 ADMIN \u73AF\u5883\u53D8\u91CF\u4E3A\u7A7A",
+  `
+  <p class="muted" style="margin:0 0 10px">\u8BF7\u5728 Cloudflare \u63A7\u5236\u53F0\u4E2D\u4E3A\u8BE5 Worker \u6DFB\u52A0\u73AF\u5883\u53D8\u91CF\uFF1A</p>
+  <pre class="code">\u53D8\u91CF\u540D\uFF1AADMIN
+\u53D8\u91CF\u503C\uFF1A\u4F60\u7684\u7BA1\u7406\u5BC6\u7801</pre>
+  <p class="muted" style="margin:14px 0 0;font-size:12.5px">
+    \u8BBE\u7F6E\u540E\u91CD\u65B0\u90E8\u7F72\uFF0C\u7136\u540E\u8BBF\u95EE <code class="mono">/login</code> \u5373\u53EF\u8FDB\u5165\u7BA1\u7406\u9762\u677F\u3002
+    \u6CE8\u610F\uFF1A\u4FEE\u6539 ADMIN \u4F1A\u540C\u65F6\u8F6E\u6362\u5BA2\u6237\u7AEF UUID \u4E0E\u8BA2\u9605\u5730\u5740\u3002
+  </p>
+  `
+);
+var NO_KV_HTML = noticePage(
+  "edgetunnel \xB7 \u672A\u7ED1\u5B9A KV",
+  { kind: "err", text: "\u7F3A\u5C11 KV" },
+  "\u5C1A\u672A\u7ED1\u5B9A KV \u547D\u540D\u7A7A\u95F4",
+  "\u914D\u7F6E\u3001\u65E5\u5FD7\u4E0E\u4F18\u9009 IP \u5747\u4F9D\u8D56 KV \u5B58\u50A8",
+  `
+  <p class="muted" style="margin:0 0 10px">\u5728 Cloudflare \u63A7\u5236\u53F0\u7684\u300C\u7ED1\u5B9A\u300D\u4E2D\u65B0\u589E\uFF1A</p>
+  <pre class="code">\u7C7B\u578B\uFF1AKV Namespace
+\u53D8\u91CF\u540D\uFF1AKV</pre>
+  <p class="muted" style="margin:14px 0 0;font-size:12.5px">
+    \u53D8\u91CF\u540D\u5FC5\u987B\u4E3A <code class="mono">KV</code>\uFF08\u4E0D\u53EF\u4FEE\u6539\uFF09\u3002\u7ED1\u5B9A\u540E\u91CD\u65B0\u90E8\u7F72\u5373\u53EF\u3002
+  </p>
+  `
+);
+
+// src/pages.js
+var NO_STORE = {
+  "Content-Type": "text/html; charset=utf-8",
+  "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+  "Pragma": "no-cache",
+  "Expires": "0",
+  // 基础安全头：面板含敏感配置，禁止被内嵌到第三方页面
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "SAMEORIGIN",
+  "Referrer-Policy": "same-origin"
+};
+var html = (markup) => new Response(markup, { status: 200, headers: NO_STORE });
+var \u767B\u5F55\u9875 = () => html(LOGIN_HTML);
+var \u7BA1\u7406\u9762\u677F = (url) => html(ADMIN_HTML);
+var \u672A\u914D\u7F6E\u5BC6\u7801\u9875 = () => new Response(NO_ADMIN_HTML, { status: 404, headers: NO_STORE });
+var \u672A\u7ED1\u5B9AKV\u9875 = () => new Response(NO_KV_HTML, { status: 404, headers: NO_STORE });
+
 // src/index.js
 async function \u8F7D\u5165\u914D\u7F6E(env, host, userID, UA, \u91CD\u7F6E\u914D\u7F6E = false) {
   \u521D\u59CB\u5316\u5171\u4EAB\u72B6\u6001({ config_JSON: await \u8BFB\u53D6config_JSON(env, host, userID, UA, \u91CD\u7F6E\u914D\u7F6E) });
@@ -6506,13 +7624,7 @@ var index_default = {
       return await \u5904\u7406\u53C9HTTP\u8BF7\u6C42(request, userID, \u53CD\u4EE3\u4E0A\u4E0B\u6587);
     } else {
       if (url.protocol === "http:") return Response.redirect(url.href.replace(`http://${url.hostname}`, `https://${url.hostname}`), 301);
-      if (!\u7BA1\u7406\u5458\u5BC6\u7801) return fetch(Pages\u9759\u6001\u9875\u9762 + "/noADMIN").then((r) => {
-        const headers = new Headers(r.headers);
-        headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
-        headers.set("Pragma", "no-cache");
-        headers.set("Expires", "0");
-        return new Response(r.body, { status: 404, statusText: r.statusText, headers });
-      });
+      if (!\u7BA1\u7406\u5458\u5BC6\u7801) return \u672A\u914D\u7F6E\u5BC6\u7801\u9875();
       if (env.KV && typeof env.KV.get === "function") {
         const \u533A\u5206\u5927\u5C0F\u5199\u8BBF\u95EE\u8DEF\u5F84 = url.pathname.slice(1);
         if (\u533A\u5206\u5927\u5C0F\u5199\u8BBF\u95EE\u8DEF\u5F84 === \u52A0\u5BC6\u79D8\u94A5 && \u52A0\u5BC6\u79D8\u94A5 !== "\u52FF\u52A8\u6B64\u9ED8\u8BA4\u5BC6\u94A5\uFF0C\u6709\u9700\u6C42\u8BF7\u81EA\u884C\u901A\u8FC7\u6DFB\u52A0\u53D8\u91CFKEY\u8FDB\u884C\u4FEE\u6539") {
@@ -6533,7 +7645,7 @@ var index_default = {
               return \u54CD\u5E94;
             }
           }
-          return fetch(Pages\u9759\u6001\u9875\u9762 + "/login");
+          return \u767B\u5F55\u9875();
         } else if (\u8BBF\u95EE\u8DEF\u5F84 === "admin" || \u8BBF\u95EE\u8DEF\u5F84.startsWith("admin/")) {
           const cookies = request.headers.get("Cookie") || "";
           const authCookie = cookies.split(";").find((c) => c.trim().startsWith("auth="))?.split("=")[1];
@@ -6717,7 +7829,7 @@ Connection: close\r
             return new Response(JSON.stringify(request.cf, null, 2), { status: 200, headers: { "Content-Type": "application/json;charset=utf-8" } });
           }
           ctx.waitUntil(\u8BF7\u6C42\u65E5\u5FD7\u8BB0\u5F55(env, request, \u8BBF\u95EEIP, "Admin_Login", config_JSON));
-          return fetch(Pages\u9759\u6001\u9875\u9762 + "/admin" + url.search);
+          return \u7BA1\u7406\u9762\u677F(url);
         } else if (\u8BBF\u95EE\u8DEF\u5F84 === "logout" || uuidRegex.test(\u8BBF\u95EE\u8DEF\u5F84)) {
           const \u54CD\u5E94 = new Response("\u91CD\u5B9A\u5411\u4E2D...", { status: 302, headers: { "Location": "/login" } });
           \u54CD\u5E94.headers.set("Set-Cookie", "auth=; Path=/; Max-Age=0; HttpOnly");
@@ -6883,13 +7995,7 @@ Connection: close\r
           const authCookie = cookies.split(";").find((c) => c.trim().startsWith("auth="))?.split("=")[1];
           if (authCookie && authCookie == await MD5MD5(UA + \u52A0\u5BC6\u79D8\u94A5 + \u7BA1\u7406\u5458\u5BC6\u7801)) return fetch(new Request("https://speed.cloudflare.com/locations", { headers: { "Referer": "https://speed.cloudflare.com/" } }));
         } else if (\u8BBF\u95EE\u8DEF\u5F84 === "robots.txt") return new Response("User-agent: *\nDisallow: /", { status: 200, headers: { "Content-Type": "text/plain; charset=UTF-8" } });
-      } else if (!envUUID) return fetch(Pages\u9759\u6001\u9875\u9762 + "/noKV").then((r) => {
-        const headers = new Headers(r.headers);
-        headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
-        headers.set("Pragma", "no-cache");
-        headers.set("Expires", "0");
-        return new Response(r.body, { status: 404, statusText: r.statusText, headers });
-      });
+      } else if (!envUUID) return \u672A\u7ED1\u5B9AKV\u9875();
     }
     let \u4F2A\u88C5\u9875URL = env.URL || "nginx";
     if (\u4F2A\u88C5\u9875URL && \u4F2A\u88C5\u9875URL !== "nginx" && \u4F2A\u88C5\u9875URL !== "1101") {

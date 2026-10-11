@@ -44,3 +44,6 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 log/
+# Ô¤ÀÀ²úÎï
+preview/
+test/_*.mjs

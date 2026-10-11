@@ -30,7 +30,7 @@
  * 「粘贴进 CF Workers 编辑器 / 上传 Pages 压缩包」的部署方式。
  */
 
-import { Version, Pages静态页面, 特征码字典 } from './constants.js';
+import { Version, 特征码字典 } from './constants.js';
 import { 获取叉HTTPPadding标识, 处理叉HTTP请求 } from './transport/xhttp.js';
 import { 处理gRPC请求 } from './transport/grpc.js';
 import { 处理WS请求 } from './transport/ws.js';
@@ -44,6 +44,7 @@ import { base64SecretEncode, 获取传输协议配置, 获取传输路径参数�
 import { log, MD5MD5, 随机路径, 替换星号为随机字符, 识别运营商, 生成随机IP, 整理成数组, 获取优选订阅生成器数据, 请求优选API } from './common.js';
 import { 反代参数获取, 获取代理默认端口, 获取SOCKS5账号 } from './proxy-config.js';
 import { getCloudflareUsage, nginx, html1101 } from './web.js';
+import { 登录页, 管理面板, 未配置密码页, 未绑定KV页 } from './pages.js';
 import { 初始化共享状态, config_JSON, 调试日志打印, 预加载竞速拨号, 反代并发拨号数, TCP并发拨号数, 缓存SOCKS5白名单, SOCKS5白名单 } from './state.js';
 
 /**
@@ -136,7 +137,7 @@ export default {
 			return await 处理叉HTTP请求(request, userID, 反代上下文);
 		} else {
 			if (url.protocol === 'http:') return Response.redirect(url.href.replace(`http://${url.hostname}`, `https://${url.hostname}`), 301);
-			if (!管理员密码) return fetch(Pages静态页面 + '/noADMIN').then(r => { const headers = new Headers(r.headers); headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate'); headers.set('Pragma', 'no-cache'); headers.set('Expires', '0'); return new Response(r.body, { status: 404, statusText: r.statusText, headers }) });
+			if (!管理员密码) return 未配置密码页();
 			if (env.KV && typeof env.KV.get === 'function') {
 				const 区分大小写访问路径 = url.pathname.slice(1);
 				if (区分大小写访问路径 === 加密秘钥 && 加密秘钥 !== '勿动此默认密钥，有需求请自行通过添加变量KEY进行修改') {//快速订阅
@@ -158,7 +159,7 @@ export default {
 							return 响应;
 						}
 					}
-					return fetch(Pages静态页面 + '/login');
+					return 登录页();
 				} else if (访问路径 === 'admin' || 访问路径.startsWith('admin/')) {//验证cookie后响应管理页面
 					const cookies = request.headers.get('Cookie') || '';
 					const authCookie = cookies.split(';').find(c => c.trim().startsWith('auth='))?.split('=')[1];
@@ -351,7 +352,7 @@ export default {
 					}
 
 					ctx.waitUntil(请求日志记录(env, request, 访问IP, 'Admin_Login', config_JSON));
-					return fetch(Pages静态页面 + '/admin' + url.search);
+					return 管理面板(url);
 				} else if (访问路径 === 'logout' || uuidRegex.test(访问路径)) {//清除cookie并跳转到登录页面
 					const 响应 = new Response('重定向中...', { status: 302, headers: { 'Location': '/login' } });
 					响应.headers.set('Set-Cookie', 'auth=; Path=/; Max-Age=0; HttpOnly');
@@ -554,7 +555,7 @@ export default {
 					const authCookie = cookies.split(';').find(c => c.trim().startsWith('auth='))?.split('=')[1];
 					if (authCookie && authCookie == await MD5MD5(UA + 加密秘钥 + 管理员密码)) return fetch(new Request('https://speed.cloudflare.com/locations', { headers: { 'Referer': 'https://speed.cloudflare.com/' } }));
 				} else if (访问路径 === 'robots.txt') return new Response('User-agent: *\nDisallow: /', { status: 200, headers: { 'Content-Type': 'text/plain; charset=UTF-8' } });
-			} else if (!envUUID) return fetch(Pages静态页面 + '/noKV').then(r => { const headers = new Headers(r.headers); headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate'); headers.set('Pragma', 'no-cache'); headers.set('Expires', '0'); return new Response(r.body, { status: 404, statusText: r.statusText, headers }) });
+			} else if (!envUUID) return 未绑定KV页();
 		}
 
 		let 伪装页URL = env.URL || 'nginx';
