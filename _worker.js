@@ -6888,6 +6888,7 @@ var ADMIN_HTML = page("edgetunnel \xB7 \u7BA1\u7406\u9762\u677F", `
       <div class="stat"><div class="k">\u4F20\u8F93</div><div class="v" id="o-trans">\u2014</div></div>
       <div class="stat"><div class="k">UUID</div><div class="v mono" id="o-uuid" style="font-size:14px">\u2014</div></div>
       <div class="stat"><div class="k">\u8BA2\u9605\u6761\u76EE</div><div class="v" id="o-count">\u2014</div></div>
+      <div class="stat"><div class="k">CF \u673A\u623F</div><div class="v" id="o-colo" style="font-size:20px">\u2014</div></div>
     </div>
 
     <div class="card">
@@ -7194,6 +7195,7 @@ var ADMIN_HTML = page("edgetunnel \xB7 \u7BA1\u7406\u9762\u677F", `
 'use strict';
 
 var CFG = null;               // /admin/config.json \u7684\u5185\u5BB9
+var GEO = null;               // /admin/cf.json \u7684\u5185\u5BB9\uFF0C\u5373\u672C\u6B21\u8BF7\u6C42\u547D\u4E2D\u7684 CF \u673A\u623F\u4E0E\u8BBF\u5BA2\u6765\u6E90
 var MSG_TIMER = null;
 
 /* ---------- \u5DE5\u5177 ---------- */
@@ -7278,6 +7280,76 @@ async function loadConfig() {
   }
 }
 
+/* ---------- \u673A\u623F / \u5730\u533A ---------- */
+
+// Cloudflare \u673A\u623F\u7528\u7684\u662F IATA \u4E09\u5B57\u7801\uFF0C\u8FD9\u91CC\u8865\u4E00\u5F20\u5E38\u7528\u8868\u7528\u4E8E\u53EF\u8BFB\u6027\uFF1B
+// \u8868\u91CC\u6CA1\u6709\u7684\u76F4\u63A5\u663E\u793A\u539F\u59CB\u7801\uFF0C\u4E0D\u4F1A\u56E0\u6B64\u4E22\u4FE1\u606F\u3002
+var COLO_CITY = {
+  HKG: '\u9999\u6E2F', TPE: '\u53F0\u5317', NRT: '\u4E1C\u4EAC', KIX: '\u5927\u962A', ICN: '\u9996\u5C14',
+  SIN: '\u65B0\u52A0\u5761', BKK: '\u66FC\u8C37', KUL: '\u5409\u9686\u5761', SGN: '\u80E1\u5FD7\u660E\u5E02', HAN: '\u6CB3\u5185',
+  DAD: '\u5C98\u6E2F', PNH: '\u91D1\u8FB9', MNL: '\u9A6C\u5C3C\u62C9', CGK: '\u96C5\u52A0\u8FBE', DPS: '\u767B\u5DF4\u8428',
+  SUB: '\u6CD7\u6C34', KTM: '\u52A0\u5FB7\u6EE1\u90FD', DAC: '\u8FBE\u5361', MAA: '\u94A6\u5948', BOM: '\u5B5F\u4E70',
+  DEL: '\u5FB7\u91CC', BLR: '\u73ED\u52A0\u7F57\u5C14', HYD: '\u6D77\u5F97\u62C9\u5DF4', KHI: '\u5361\u62C9\u5947',
+  DXB: '\u8FEA\u62DC', DOH: '\u591A\u54C8', RUH: '\u5229\u96C5\u5F97', JED: '\u5409\u8FBE', TLV: '\u7279\u62C9\u7EF4\u592B',
+  IST: '\u4F0A\u65AF\u5766\u5E03\u5C14', MOW: '\u83AB\u65AF\u79D1', FRA: '\u6CD5\u5170\u514B\u798F', DUS: '\u675C\u585E\u5C14\u591A\u592B',
+  AMS: '\u963F\u59C6\u65AF\u7279\u4E39', BRU: '\u5E03\u9C81\u585E\u5C14', LHR: '\u4F26\u6566', MAN: '\u66FC\u5F7B\u65AF\u7279',
+  CDG: '\u5DF4\u9ECE', DUB: '\u90FD\u67CF\u6797', MAD: '\u9A6C\u5FB7\u91CC', BCN: '\u5DF4\u585E\u7F57\u90A3', LIS: '\u91CC\u65AF\u672C',
+  MXP: '\u7C73\u5170', FCO: '\u7F57\u9A6C', ZRH: '\u82CF\u9ECE\u4E16', VIE: '\u7EF4\u4E5F\u7EB3', PRG: '\u5E03\u62C9\u683C',
+  WAW: '\u534E\u6C99', ARN: '\u65AF\u5FB7\u54E5\u5C14\u6469', OSL: '\u5965\u65AF\u9646', CPH: '\u54E5\u672C\u54C8\u6839', HEL: '\u8D6B\u5C14\u8F9B\u57FA',
+  SYD: '\u6089\u5C3C', MEL: '\u58A8\u5C14\u672C', BNE: '\u5E03\u91CC\u65AF\u73ED', PER: '\u73C0\u65AF', AKL: '\u5965\u514B\u5170',
+  GRU: '\u5723\u4FDD\u7F57', GIG: '\u91CC\u7EA6\u70ED\u5185\u5362', EZE: '\u5E03\u5B9C\u8BFA\u65AF\u827E\u5229\u65AF', SCL: '\u5723\u5730\u4E9A\u54E5',
+  LIM: '\u5229\u9A6C', MEX: '\u58A8\u897F\u54E5\u57CE', YYZ: '\u591A\u4F26\u591A', YUL: '\u8499\u7279\u5229\u5C14',
+  SEA: '\u897F\u96C5\u56FE', PDX: '\u6CE2\u7279\u5170', SJC: '\u5723\u4F55\u585E', SMF: '\u8428\u514B\u62C9\u95E8\u6258',
+  LAX: '\u6D1B\u6749\u77F6', SAN: '\u5723\u8FED\u6208', PHX: '\u83F2\u5C3C\u514B\u65AF', LAS: '\u62C9\u65AF\u7EF4\u52A0\u65AF',
+  SLC: '\u76D0\u6E56\u57CE', DEN: '\u4E39\u4F5B', DFW: '\u8FBE\u62C9\u65AF', IAD: '\u534E\u76DB\u987F', EWR: '\u7EBD\u7EA6',
+  ATL: '\u4E9A\u7279\u5170\u5927', MIA: '\u8FC8\u963F\u5BC6', ORD: '\u829D\u52A0\u54E5', MSP: '\u660E\u5C3C\u963F\u6CE2\u5229\u65AF',
+  AUS: '\u5965\u65AF\u6C40', IAH: '\u4F11\u65AF\u987F', CLE: '\u514B\u5229\u592B\u5170', PIT: '\u5339\u5179\u5821', CMH: '\u54E5\u4F26\u5E03',
+  IND: '\u5370\u7B2C\u5B89\u7EB3\u6CE2\u5229\u65AF', STL: '\u5723\u8DEF\u6613\u65AF', MCI: '\u582A\u8428\u65AF\u57CE', BNA: '\u7EB3\u4EC0\u7EF4\u5C14',
+  CLT: '\u590F\u6D1B\u7279', RDU: '\u7F57\u5229', BWI: '\u5DF4\u5C14\u7684\u6469', ANC: '\u5B89\u514B\u96F7\u5947', OGG: '\u6BDB\u4F0A\u5C9B',
+  HNL: '\u6A80\u9999\u5C71', GUM: '\u5173\u5C9B', PPT: '\u5E15\u76AE\u63D0', JNB: '\u7EA6\u7FF0\u5185\u65AF\u5821', CPT: '\u5F00\u666E\u6566',
+  CAI: '\u5F00\u7F57', LOS: '\u62C9\u5404\u65AF', NBO: '\u5185\u7F57\u6BD5'
+};
+
+// \u5E38\u89C1\u56FD\u5BB6/\u5730\u533A\u4EE3\u7801 \u2192 \u4E2D\u6587\u540D\uFF1B\u672A\u6536\u5F55\u65F6\u56DE\u9000\u5230\u4EE3\u7801\u672C\u8EAB
+var CC_CN = {
+  HK: '\u9999\u6E2F', MO: '\u6FB3\u95E8', TW: '\u53F0\u6E7E', JP: '\u65E5\u672C', KR: '\u97E9\u56FD', SG: '\u65B0\u52A0\u5761', MY: '\u9A6C\u6765\u897F\u4E9A',
+  TH: '\u6CF0\u56FD', VN: '\u8D8A\u5357', PH: '\u83F2\u5F8B\u5BBE', ID: '\u5370\u5C3C', IN: '\u5370\u5EA6', PK: '\u5DF4\u57FA\u65AF\u5766', BD: '\u5B5F\u52A0\u62C9',
+  AU: '\u6FB3\u5927\u5229\u4E9A', NZ: '\u65B0\u897F\u5170', US: '\u7F8E\u56FD', CA: '\u52A0\u62FF\u5927', GB: '\u82F1\u56FD', DE: '\u5FB7\u56FD', FR: '\u6CD5\u56FD',
+  NL: '\u8377\u5170', RU: '\u4FC4\u7F57\u65AF', BR: '\u5DF4\u897F', AR: '\u963F\u6839\u5EF7', CL: '\u667A\u5229', PE: '\u79D8\u9C81', MX: '\u58A8\u897F\u54E5',
+  AE: '\u963F\u8054\u914B', SA: '\u6C99\u7279', TR: '\u571F\u8033\u5176', IL: '\u4EE5\u8272\u5217', IT: '\u610F\u5927\u5229', ES: '\u897F\u73ED\u7259',
+  SE: '\u745E\u5178', NO: '\u632A\u5A01', DK: '\u4E39\u9EA6', FI: '\u82AC\u5170', PL: '\u6CE2\u5170', CZ: '\u6377\u514B', AT: '\u5965\u5730\u5229',
+  CH: '\u745E\u58EB', BE: '\u6BD4\u5229\u65F6', IE: '\u7231\u5C14\u5170', PT: '\u8461\u8404\u7259', ZA: '\u5357\u975E', EG: '\u57C3\u53CA', NG: '\u5C3C\u65E5\u5229\u4E9A',
+  CN: '\u4E2D\u56FD', KP: '\u671D\u9C9C', MN: '\u8499\u53E4', KH: '\u67EC\u57D4\u5BE8', LA: '\u8001\u631D', MM: '\u7F05\u7538', BN: '\u6587\u83B1'
+};
+
+function \u5730\u533A\u540D\u79F0(cc, city) {
+  var \u56FD\u5BB6 = String(cc || '').toUpperCase();
+  var \u4E2D\u6587 = CC_CN[\u56FD\u5BB6];
+  var \u57CE\u5E02\u540D = String(city || '').trim();
+  if (\u4E2D\u6587 && \u57CE\u5E02\u540D && \u57CE\u5E02\u540D !== \u4E2D\u6587) return \u4E2D\u6587 + ' \xB7 ' + \u57CE\u5E02\u540D;
+  return \u4E2D\u6587 || \u57CE\u5E02\u540D || \u56FD\u5BB6 || '\u2014';
+}
+
+/**
+ * \u8BFB\u53D6\u672C\u6B21\u8BF7\u6C42\u547D\u4E2D\u7684 CF \u673A\u623F\u4E0E\u8BBF\u5BA2\u6765\u6E90\u3002
+ *
+ * \u8FD9\u91CC\u7684 colo \u4E0D\u53EA\u662F\u300C\u4F60\u5728\u54EA\u300D\uFF1AWorker \u7528\u5B83\u62FC\u53CD\u4EE3 IP
+ * \uFF08index.js \u91CC \u9ED8\u8BA4\u53CD\u4EE3IP \u7531 request.cf.colo \u5F00\u5934\u62FC\u6210\uFF09\uFF0C
+ * \u6240\u4EE5\u5B83\u540C\u65F6\u51B3\u5B9A\u4E86\u96A7\u9053\u51FA\u53E3\u843D\u5728\u54EA\u4E2A\u673A\u623F\uFF0C\u4E5F\u5C31\u662F\u8BA2\u9605\u91CC\u8282\u70B9\u7684\u5B9E\u9645\u5730\u533A\u3002
+ */
+async function loadGeo() {
+  try {
+    const data = await api('/admin/cf.json');
+    if (data && typeof data === 'object' && !data.error) {
+      GEO = data;
+      renderOverview();
+    }
+  } catch (e) {
+    // \u5730\u533A\u4FE1\u606F\u5C5E\u4E8E\u9526\u4E0A\u6DFB\u82B1\uFF0C\u53D6\u4E0D\u5230\u5C31\u4FDD\u6301\u300C\u2014\u300D\uFF0C\u4E0D\u5F39\u9519\u8BEF\u6253\u6270\u7528\u6237
+    GEO = null;
+  }
+}
+
 function val(id, v) {
   var el = $(id);
   if (!el) return;
@@ -7342,6 +7414,7 @@ function render() {
 }
 
 function renderOverview() {
+  if (!CFG) return;
   $('o-proto').textContent = CFG.\u534F\u8BAE\u7C7B\u578B || '\u2014';
   $('o-trans').textContent = CFG.\u4F20\u8F93\u534F\u8BAE || '\u2014';
   $('o-uuid').textContent = CFG.UUID || '\uFF08\u81EA\u52A8\u6D3E\u751F\uFF09';
@@ -7351,7 +7424,24 @@ function renderOverview() {
   $('o-time').textContent = \u683C\u5F0F\u5316\u65F6\u95F4(CFG.TIME);
   $('o-time').title = CFG.TIME || '';
 
+  // \u673A\u623F\u5361\uFF1Acolo \u51B3\u5B9A\u53CD\u4EE3 IP\uFF0C\u56E0\u800C\u51B3\u5B9A\u96A7\u9053\u51FA\u53E3\u843D\u5728\u54EA\u4E2A\u5730\u533A
+  var colo = String((GEO || {}).colo || '').toUpperCase();
+  var coloEl = $('o-colo');
+  if (colo) {
+    coloEl.textContent = colo;
+    coloEl.title = 'Cloudflare \u673A\u623F ' + colo + '\uFF08' + (COLO_CITY[colo] || '\u672A\u77E5\u5730\u533A') + '\uFF09';
+  } else {
+    coloEl.textContent = '\u2014';
+    coloEl.title = '';
+  }
+
+  var g = GEO || {};
+  var \u7F51\u7EDC = [g.asn ? 'AS' + g.asn : '', g.asOrganization || ''].filter(Boolean).join(' ');
+
   var rows = [
+    ['CF \u673A\u623F', colo ? colo + (COLO_CITY[colo] ? ' \xB7 ' + COLO_CITY[colo] : '') : '\u2014'],
+    ['\u8BBF\u95EE\u6765\u6E90', \u5730\u533A\u540D\u79F0(g.country, g.city)],
+    ['\u63A5\u5165\u7F51\u7EDC', \u7F51\u7EDC || '\u2014'],
     ['\u4E3B\u57DF\u540D', CFG.HOST || '\u2014'],
     ['\u8282\u70B9\u8DEF\u5F84', CFG.PATH || '/'],
     ['\u8282\u70B9\u540D\u79F0', (CFG.\u4F18\u9009\u8BA2\u9605\u751F\u6210 || {}).SUBNAME || '\u2014'],
@@ -7450,7 +7540,7 @@ $('q-reset').addEventListener('click', async function () {
   } catch (e) { notify('\u91CD\u7F6E\u5931\u8D25\uFF1A' + e.message, 'err'); }
 });
 
-$('btn-refresh').addEventListener('click', function () { loadConfig(); notify('\u5DF2\u5237\u65B0', 'ok'); });
+$('btn-refresh').addEventListener('click', function () { loadConfig(); loadGeo(); notify('\u5DF2\u5237\u65B0', 'ok'); });
 $('q-copy-sub').addEventListener('click', function () { copy($('sub-url').value); });
 $('q-copy-uuid').addEventListener('click', function () { copy($('c-uuid').value || ''); });
 $('s-copy').addEventListener('click', function () { copy($('sub-url').value); });
@@ -7582,6 +7672,8 @@ loadConfig().then(function () {
   $('badge-node').className = CFG && CFG.HOST ? 'badge ok' : 'badge err';
   loadIPs();
 });
+// \u5730\u533A\u4FE1\u606F\u4E0E\u914D\u7F6E\u65E0\u5173\uFF0C\u5355\u72EC\u5E76\u884C\u62C9\u53D6\uFF1B\u5931\u8D25\u9759\u9ED8\uFF0C\u4E0D\u5F71\u54CD\u9762\u677F\u5176\u4F59\u90E8\u5206
+loadGeo();
 })();
 </script>
 `);

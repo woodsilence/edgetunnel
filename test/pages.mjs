@@ -65,6 +65,7 @@ chk('含日志标签页', /data-panel="logs"/.test(adminBody));
 chk('调用 config.json 接口', adminBody.includes('/admin/config.json'));
 chk('调用 ADD.txt 接口', adminBody.includes('/admin/ADD.txt'));
 chk('调用 log.json 接口', adminBody.includes('/admin/log.json'));
+chk('调用 cf.json 接口显示地区', adminBody.includes('/admin/cf.json') && /id="o-colo"/.test(adminBody));
 chk('调用代理检测接口', adminBody.includes('/admin/check'));
 chk('调用优选 API 校验', adminBody.includes('/admin/getADDAPI'));
 chk('支持暗色模式', /prefers-color-scheme/.test(adminBody));

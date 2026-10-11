@@ -48,6 +48,7 @@ export const ADMIN_HTML = page('edgetunnel · 管理面板', `
       <div class="stat"><div class="k">传输</div><div class="v" id="o-trans">—</div></div>
       <div class="stat"><div class="k">UUID</div><div class="v mono" id="o-uuid" style="font-size:14px">—</div></div>
       <div class="stat"><div class="k">订阅条目</div><div class="v" id="o-count">—</div></div>
+      <div class="stat"><div class="k">CF 机房</div><div class="v" id="o-colo" style="font-size:20px">—</div></div>
     </div>
 
     <div class="card">
@@ -354,6 +355,7 @@ export const ADMIN_HTML = page('edgetunnel · 管理面板', `
 'use strict';
 
 var CFG = null;               // /admin/config.json 的内容
+var GEO = null;               // /admin/cf.json 的内容，即本次请求命中的 CF 机房与访客来源
 var MSG_TIMER = null;
 
 /* ---------- 工具 ---------- */
@@ -438,6 +440,76 @@ async function loadConfig() {
   }
 }
 
+/* ---------- 机房 / 地区 ---------- */
+
+// Cloudflare 机房用的是 IATA 三字码，这里补一张常用表用于可读性；
+// 表里没有的直接显示原始码，不会因此丢信息。
+var COLO_CITY = {
+  HKG: '香港', TPE: '台北', NRT: '东京', KIX: '大阪', ICN: '首尔',
+  SIN: '新加坡', BKK: '曼谷', KUL: '吉隆坡', SGN: '胡志明市', HAN: '河内',
+  DAD: '岘港', PNH: '金边', MNL: '马尼拉', CGK: '雅加达', DPS: '登巴萨',
+  SUB: '泗水', KTM: '加德满都', DAC: '达卡', MAA: '钦奈', BOM: '孟买',
+  DEL: '德里', BLR: '班加罗尔', HYD: '海得拉巴', KHI: '卡拉奇',
+  DXB: '迪拜', DOH: '多哈', RUH: '利雅得', JED: '吉达', TLV: '特拉维夫',
+  IST: '伊斯坦布尔', MOW: '莫斯科', FRA: '法兰克福', DUS: '杜塞尔多夫',
+  AMS: '阿姆斯特丹', BRU: '布鲁塞尔', LHR: '伦敦', MAN: '曼彻斯特',
+  CDG: '巴黎', DUB: '都柏林', MAD: '马德里', BCN: '巴塞罗那', LIS: '里斯本',
+  MXP: '米兰', FCO: '罗马', ZRH: '苏黎世', VIE: '维也纳', PRG: '布拉格',
+  WAW: '华沙', ARN: '斯德哥尔摩', OSL: '奥斯陆', CPH: '哥本哈根', HEL: '赫尔辛基',
+  SYD: '悉尼', MEL: '墨尔本', BNE: '布里斯班', PER: '珀斯', AKL: '奥克兰',
+  GRU: '圣保罗', GIG: '里约热内卢', EZE: '布宜诺斯艾利斯', SCL: '圣地亚哥',
+  LIM: '利马', MEX: '墨西哥城', YYZ: '多伦多', YUL: '蒙特利尔',
+  SEA: '西雅图', PDX: '波特兰', SJC: '圣何塞', SMF: '萨克拉门托',
+  LAX: '洛杉矶', SAN: '圣迭戈', PHX: '菲尼克斯', LAS: '拉斯维加斯',
+  SLC: '盐湖城', DEN: '丹佛', DFW: '达拉斯', IAD: '华盛顿', EWR: '纽约',
+  ATL: '亚特兰大', MIA: '迈阿密', ORD: '芝加哥', MSP: '明尼阿波利斯',
+  AUS: '奥斯汀', IAH: '休斯顿', CLE: '克利夫兰', PIT: '匹兹堡', CMH: '哥伦布',
+  IND: '印第安纳波利斯', STL: '圣路易斯', MCI: '堪萨斯城', BNA: '纳什维尔',
+  CLT: '夏洛特', RDU: '罗利', BWI: '巴尔的摩', ANC: '安克雷奇', OGG: '毛伊岛',
+  HNL: '檀香山', GUM: '关岛', PPT: '帕皮提', JNB: '约翰内斯堡', CPT: '开普敦',
+  CAI: '开罗', LOS: '拉各斯', NBO: '内罗毕'
+};
+
+// 常见国家/地区代码 → 中文名；未收录时回退到代码本身
+var CC_CN = {
+  HK: '香港', MO: '澳门', TW: '台湾', JP: '日本', KR: '韩国', SG: '新加坡', MY: '马来西亚',
+  TH: '泰国', VN: '越南', PH: '菲律宾', ID: '印尼', IN: '印度', PK: '巴基斯坦', BD: '孟加拉',
+  AU: '澳大利亚', NZ: '新西兰', US: '美国', CA: '加拿大', GB: '英国', DE: '德国', FR: '法国',
+  NL: '荷兰', RU: '俄罗斯', BR: '巴西', AR: '阿根廷', CL: '智利', PE: '秘鲁', MX: '墨西哥',
+  AE: '阿联酋', SA: '沙特', TR: '土耳其', IL: '以色列', IT: '意大利', ES: '西班牙',
+  SE: '瑞典', NO: '挪威', DK: '丹麦', FI: '芬兰', PL: '波兰', CZ: '捷克', AT: '奥地利',
+  CH: '瑞士', BE: '比利时', IE: '爱尔兰', PT: '葡萄牙', ZA: '南非', EG: '埃及', NG: '尼日利亚',
+  CN: '中国', KP: '朝鲜', MN: '蒙古', KH: '柬埔寨', LA: '老挝', MM: '缅甸', BN: '文莱'
+};
+
+function 地区名称(cc, city) {
+  var 国家 = String(cc || '').toUpperCase();
+  var 中文 = CC_CN[国家];
+  var 城市名 = String(city || '').trim();
+  if (中文 && 城市名 && 城市名 !== 中文) return 中文 + ' · ' + 城市名;
+  return 中文 || 城市名 || 国家 || '—';
+}
+
+/**
+ * 读取本次请求命中的 CF 机房与访客来源。
+ *
+ * 这里的 colo 不只是「你在哪」：Worker 用它拼反代 IP
+ * （index.js 里 默认反代IP 由 request.cf.colo 开头拼成），
+ * 所以它同时决定了隧道出口落在哪个机房，也就是订阅里节点的实际地区。
+ */
+async function loadGeo() {
+  try {
+    const data = await api('/admin/cf.json');
+    if (data && typeof data === 'object' && !data.error) {
+      GEO = data;
+      renderOverview();
+    }
+  } catch (e) {
+    // 地区信息属于锦上添花，取不到就保持「—」，不弹错误打扰用户
+    GEO = null;
+  }
+}
+
 function val(id, v) {
   var el = $(id);
   if (!el) return;
@@ -502,6 +574,7 @@ function render() {
 }
 
 function renderOverview() {
+  if (!CFG) return;
   $('o-proto').textContent = CFG.协议类型 || '—';
   $('o-trans').textContent = CFG.传输协议 || '—';
   $('o-uuid').textContent = CFG.UUID || '（自动派生）';
@@ -511,7 +584,24 @@ function renderOverview() {
   $('o-time').textContent = 格式化时间(CFG.TIME);
   $('o-time').title = CFG.TIME || '';
 
+  // 机房卡：colo 决定反代 IP，因而决定隧道出口落在哪个地区
+  var colo = String((GEO || {}).colo || '').toUpperCase();
+  var coloEl = $('o-colo');
+  if (colo) {
+    coloEl.textContent = colo;
+    coloEl.title = 'Cloudflare 机房 ' + colo + '（' + (COLO_CITY[colo] || '未知地区') + '）';
+  } else {
+    coloEl.textContent = '—';
+    coloEl.title = '';
+  }
+
+  var g = GEO || {};
+  var 网络 = [g.asn ? 'AS' + g.asn : '', g.asOrganization || ''].filter(Boolean).join(' ');
+
   var rows = [
+    ['CF 机房', colo ? colo + (COLO_CITY[colo] ? ' · ' + COLO_CITY[colo] : '') : '—'],
+    ['访问来源', 地区名称(g.country, g.city)],
+    ['接入网络', 网络 || '—'],
     ['主域名', CFG.HOST || '—'],
     ['节点路径', CFG.PATH || '/'],
     ['节点名称', (CFG.优选订阅生成 || {}).SUBNAME || '—'],
@@ -610,7 +700,7 @@ $('q-reset').addEventListener('click', async function () {
   } catch (e) { notify('重置失败：' + e.message, 'err'); }
 });
 
-$('btn-refresh').addEventListener('click', function () { loadConfig(); notify('已刷新', 'ok'); });
+$('btn-refresh').addEventListener('click', function () { loadConfig(); loadGeo(); notify('已刷新', 'ok'); });
 $('q-copy-sub').addEventListener('click', function () { copy($('sub-url').value); });
 $('q-copy-uuid').addEventListener('click', function () { copy($('c-uuid').value || ''); });
 $('s-copy').addEventListener('click', function () { copy($('sub-url').value); });
@@ -742,6 +832,8 @@ loadConfig().then(function () {
   $('badge-node').className = CFG && CFG.HOST ? 'badge ok' : 'badge err';
   loadIPs();
 });
+// 地区信息与配置无关，单独并行拉取；失败静默，不影响面板其余部分
+loadGeo();
 })();
 </script>
 `);

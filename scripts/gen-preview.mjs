@@ -59,6 +59,7 @@ const mk = (u, h = {}) => ({
 // 取真实渲染出的面板与配置
 const adminHtml = await (await worker.fetch(mk('/admin', { Cookie: `auth=${authCookie}` }), env, ctx)).text();
 const cfg = await (await worker.fetch(mk('/admin/config.json', { Cookie: `auth=${authCookie}` }), env, ctx)).json();
+const cfInfo = await (await worker.fetch(mk('/admin/cf.json', { Cookie: `auth=${authCookie}` }), env, ctx)).json();
 cfg.TIME = new Date().toISOString();
 cfg.加载时间 = '3.21ms';
 cfg.随机路径 = true;
@@ -70,11 +71,15 @@ const stub = `
   var __DEMO_LOGS = ${JSON.stringify(DEMO_LOGS)};
   var __DEMO_IPS = ${JSON.stringify(DEMO_IPS)};
   var __CFG = ${JSON.stringify(cfg)};
+  var __CFINFO = ${JSON.stringify(cfInfo)};
   var __realFetch = window.fetch;
   window.fetch = function (url, opts) {
     var u = String(url && url.url ? url.url : url);
     if (u.indexOf('/admin/config.json') >= 0) {
       return Promise.resolve(new Response(JSON.stringify(__CFG), { headers: { 'content-type': 'application/json' } }));
+    }
+    if (u.indexOf('/admin/cf.json') >= 0) {
+      return Promise.resolve(new Response(JSON.stringify(__CFINFO), { headers: { 'content-type': 'application/json' } }));
     }
     if (u.indexOf('/admin/log.json') >= 0) {
       return Promise.resolve(new Response(JSON.stringify(__DEMO_LOGS), { headers: { 'content-type': 'application/json' } }));
