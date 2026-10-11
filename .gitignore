@@ -15,6 +15,12 @@ build/
 *.wasm
 GRAINTCP_*
 
+# 模块化抽取的中间产物（ref/monolith.js 为重构前基线，需保留）
+ref/bundle.js
+ref/entry-body.js
+ref/manifest.json
+test/_*.mjs
+
 # Cloudflare Workers
 .wrangler/
 wrangler-install.log

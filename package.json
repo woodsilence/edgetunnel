@@ -1,0 +1,20 @@
+{
+  "name": "edgetunnel",
+  "version": "2.1.0",
+  "private": true,
+  "type": "module",
+  "description": "基于 Cloudflare Workers/Pages 的边缘隧道（VLESS/Trojan/Shadowsocks）",
+  "scripts": {
+    "build": "node scripts/pipeline.mjs",
+    "check": "node scripts/pipeline.mjs --check",
+    "test": "npm run build && npm run test:md5 && npm run test:deep && npm run test:regress",
+    "test:md5": "node test/md5.mjs",
+    "test:deep": "node test/deep.mjs",
+    "test:regress": "node test/snapshot.mjs _worker.js ref/current.json && node scripts/verify.mjs",
+    "baseline": "node test/snapshot.mjs ref/monolith.js ref/baseline.json"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "wrangler": "^4.149.0"
+  }
+}

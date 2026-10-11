@@ -1,0 +1,262 @@
+[
+  {
+    "id": "constants",
+    "file": "src/constants.js",
+    "title": "全局常量与配置开关",
+    "doc": "全局常量与配置开关\n\n包含三类内容：\n1. 版本号 `Version` 与静态页面地址 `Pages静态页面`\n2. 传输层调优阈值：WS 早期数据上限、上行合包目标字节（20KB）、\n   下行 Grain 包大小（32KB）与低水位阈值，直接影响 TCP↔WebSocket 的吞吐与 CPU 占用\n3. 特征码字典 `特征码字典`：用 `Proxy.name + \"IP\"`、`String.fromCharCode` 等方式\n   拼接还原 \"PROXYIP\" / \"cmliu\"，规避基于关键词的静态扫描\n\n另含三个\"可调旋钮\"：`TCP并发拨号数`、`反代并发拨号数`、`预加载竞速拨号`，\n它们由 fetch() 在每次请求开始时依据环境变量覆写（见 constants.js 末尾的说明）。",
+    "ranges": [
+      [
+        1,
+        15
+      ]
+    ]
+  },
+  {
+    "id": "transport-xhttp",
+    "file": "src/transport/xhttp.js",
+    "title": "叉HTTP（XHTTP）传输层",
+    "doc": "叉HTTP（XHTTP）传输层\n\nXHTTP 把隧道流量包在普通 HTTP POST 里，靠 `padding` 混淆来对抗主动探测：\n- `获取叉HTTPPadding标识`：由 UUID 派生出本机的 padding 请求头名与 query 参数名\n- `校验叉HTTPPadding`：要求 padding 值的 HPACK Huffman 编码长度落在 98~1002 字节，\n  区间外的请求直接判 400 —— 这是抗探测的关键判据\n- `读取叉HTTP首包`：读取并解析首包，得到 host/port/协议类型/原始载荷\n- `处理叉HTTP请求` / `处理叉HTTPUDP请求`：首包解析后转入出站层，并负责双向流的直连搬运\n\n连接世代机制（`开始TCP连接世代` / `失效TCP连接世代`）在此定义，\n用于在反代 IP 切换时作废旧连接的异步回调，避免竞态污染新连接。",
+    "ranges": [
+      [
+        531,
+        978
+      ]
+    ]
+  },
+  {
+    "id": "transport-grpc",
+    "file": "src/transport/grpc.js",
+    "title": "gRPC 传输层",
+    "doc": "gRPC 传输层\n\n处理 `content-type: application/grpc` 的 POST 请求。与叉HTTP 共用出站层，\n差异仅在于帧格式：gRPC 的 5 字节前缀（1 字节压缩标记 + 4 字节大端长度）需先剥离，\n把剩下的净荷交给 `forwardataTCP`。",
+    "ranges": [
+      [
+        979,
+        1247
+      ]
+    ]
+  },
+  {
+    "id": "transport-ws",
+    "file": "src/transport/ws.js",
+    "title": "WebSocket 传输层与协议自动识别",
+    "doc": "WebSocket 传输层与协议自动识别\n\n本模块是三种协议（VLESS / Trojan / Shadowsocks）的统一入口，也是全项目\n协议分流的决策点（见 `处理WS请求` 内的 `判断协议类型`）：\n\n- URL 带 `?enc=`  → Shadowsocks（无固定头部，必须显式声明）\n- 否则嗅探首包第 56/57 字节是否为 `0x0d 0x0a`（Trojan 密码哈希的固定尾部）\n  → 命中为 Trojan，否则为 VLESS\n\n另含两项优化：\n- `是有效WS早期数据` / `解码WS早期数据`：从 `Sec-WebSocket-Protocol` 里解出\n  base64 早期数据，让首包在 WS 握手阶段就带过去，降低首包时延\n- WS 本地测速模式：对 speed.cloudflare.com 直接本地应答，不出网",
+    "ranges": [
+      [
+        1248,
+        1788
+      ]
+    ]
+  },
+  {
+    "id": "protocol-trojan",
+    "file": "src/protocol/trojan.js",
+    "title": "Trojan（木马）协议解析",
+    "doc": "Trojan（木马）协议解析\n\nTrojan 请求格式：56 字节定长 SHA224(password) 哈希 + CRLF + 命令 + 地址 + 载荷。\n- `解析木马请求`：先比对定长哈希（前缀即密码），再解析命令/地址/载荷\n- `解析木马反代地址` / `提取木马反代握手数据` / `连接木马反代`：\n  支持 `?trojan=host:port` 形式的 fallback 自建对接（仅 Trojan 入站，UDP 可透传）\n- `转发木马UDP数据` / `转发木马UDP反代数据`：Trojan 的 UDP 走独立于 VLESS 的路径",
+    "ranges": [
+      [
+        1789,
+        1923
+      ],
+      [
+        2096,
+        2170
+      ]
+    ]
+  },
+  {
+    "id": "protocol-vless",
+    "file": "src/protocol/vless.js",
+    "title": "VLESS（魏烈思）协议解析",
+    "doc": "VLESS（魏烈思）协议解析\n\n请求格式：版本(1) + UUID(16) + 命令(1: TCP=1/UDP=2) + 端口(2) + 地址类型(1) + 地址 + 载荷。\n\n- `获取UUID字节`：UUID → 16 字节，带 LRU 式缓存（容量 32）\n- `UUID字节匹配`：逐字节比对，避免 `String.includes` 带来的时序侧信道\n- `解析魏烈思请求`：手写解析三种地址类型（1=IPv4 / 2=域名 / 3=IPv6）\n\nUDP 仅支持 DNS（`port===53`），由出站层的 `forwardataudp` 转成\nTCP DNS 转发到 8.8.4.4 —— 因为 Workers 运行时开不了 UDP socket。",
+    "ranges": [
+      [
+        1924,
+        2013
+      ]
+    ]
+  },
+  {
+    "id": "protocol-ss",
+    "file": "src/protocol/shadowsocks.js",
+    "title": "Shadowsocks AEAD 协议",
+    "doc": "Shadowsocks AEAD 协议\n\n自实现 AES-GCM + HKDF 的 Shadowsocks AEAD 加密：\n- `SS派生主密钥`：EVP-BytesToKey 风格的 MD5 迭代派生，带缓存\n- `SS派生会话密钥`：HKDF 派生子密钥\n- `SSAEAD加密` / `SSAEAD解密`：带长度前缀的分块加密，nonce 为 12 字节\n- `SS递增Nonce计数器`：大端递增，防 nonce 重用\n\n支持 aes-128-gcm 与 aes-256-gcm（见 `SS支持加密配置`）。",
+    "ranges": [
+      [
+        2014,
+        2022
+      ],
+      [
+        2171,
+        2224
+      ]
+    ]
+  },
+  {
+    "id": "outbound-core",
+    "file": "src/outbound/forward.js",
+    "title": "出站核心：forwardataTCP / forwardataUDP",
+    "doc": "出站核心：forwardataTCP / forwardataUDP\n\n全项目所有隧道流量的最终归宿。出站通道决策树：\n\n    URL 带代理参数?  ──是──→ socks5Connect / httpConnect / httpsConnect / turnConnect / sstpConnect\n                      │\n                     否 → connectProxyIP()：连反代 IP 数组（并发抢最快）\n                             └─ 全失败 → connectDirect() 兜底直连目标\n\n两项提速手段（均为\"多路并发 + Promise.any 抢最快\"）：\n- `TCP并发拨号数`（默认 2，移动网络自动降为 1）：对同一目标并发开多路\n- `预加载竞速拨号`：先用 DoH 查目标域名 A/AAAA，直接对多个 IP 并发，省掉 DNS 等待\n\n注意 `创建请求TCP连接器` 依赖 Workers 私有 API `request.fetcher.connect`，\n这是本运行时唯一的出站 TCP 原语。",
+    "ranges": [
+      [
+        2225,
+        2562
+      ],
+      [
+        3385,
+        3390
+      ]
+    ]
+  },
+  {
+    "id": "outbound-proxies",
+    "file": "src/outbound/proxies.js",
+    "title": "SOCKS5 / HTTP(S) 代理连接器",
+    "doc": "SOCKS5 / HTTP(S) 代理连接器\n\n- `socks5Connect`：实现 SOCKS5 握手（含用户名/密码认证）\n- `httpConnect`：HTTP CONNECT 隧道\n- `httpsConnect`：到 HTTPS 代理建立 TLS 后再 CONNECT\n\n三者签名一致：入参为目标 host/port、首包数据、TCP 连接器、解析好的代理账号，\n返回已连好的 `{ readable, writable }`。这样 `forwardataTCP` 可以把它们\n与直连路径统一对待。",
+    "ranges": [
+      [
+        3190,
+        3384
+      ]
+    ]
+  },
+  {
+    "id": "net-tls",
+    "file": "src/net/tls.js",
+    "title": "手写 TLS 客户端（TlsClient）",
+    "doc": "手写 TLS 客户端（TlsClient）\n\n来源：@Alexandre_Kojeve。为了在 Worker 里充当 TLS 客户端（代理检测、\nTrojan fallback、SOCKS5 over TLS 等场景），运行时没有可用 API，只能自行实现：\n\n- 握手状态机：ClientHello → ServerHello → Certificate → KeyExchange → Finished\n- 密钥派生：TLS 1.2 PRF / TLS 1.3 HKDF（`tls12Prf` `hkdfExtract` `hkdfExpandLabel`）\n- 记录层：AES-GCM 与 ChaCha20-Poly1305（`chacha20Block` `poly1305Mac`）\n- 解析器：`TlsRecordParser` / `TlsHandshakeParser` / `parseServerHello` 等\n\n**维护提示**：本模块含独立的字节工具（`concatBytes` / `tlsBytes`），\n与 utils/bytes.js 中的 `拼接字节数据` 语义相近但不完全等价\n（前者可接受普通数组，后者要求 Uint8Array）。因涉及加密握手正确性，\n刻意保持独立、未做合并——修改前请务必确认 AEAD 计算不受影响。",
+    "ranges": [
+      [
+        3391,
+        4065
+      ]
+    ]
+  },
+  {
+    "id": "outbound-turn",
+    "file": "src/outbound/turn.js",
+    "title": "TURN 代理连接器",
+    "doc": "TURN 代理连接器\n\n实现 STUN/TURN 协议：Allocate → CreatePermission → CreateConnection。\n含消息完整性校验（`addTurnMessageIntegrity`，MD5-SHA1 的 MESSAGE-INTEGRITY）\n与 401 认证挑战处理（realm/realm + username/password）。\n\n配套 `stripIPv6Brackets` / `isIPHostname` 等地址规范化工具。",
+    "ranges": [
+      [
+        4066,
+        4355
+      ]
+    ]
+  },
+  {
+    "id": "outbound-sstp",
+    "file": "src/outbound/sstp.js",
+    "title": "SSTP 代理连接器",
+    "doc": "SSTP 代理连接器\n\n实现 SSTP（Secure Socket Tunneling Protocol，Windows 自带的 VPN 协议）：\nTCP 控制连接上的 SSTP_MSG 握手 + TLS over TCP。\n含 TCP MSS 分段（`SSTP_TCP_MSS`）与 Internet checksum（RFC 1071）。",
+    "ranges": [
+      [
+        4356,
+        4795
+      ]
+    ]
+  },
+  {
+    "id": "stream",
+    "file": "src/stream.js",
+    "title": "流处理：Grain 合包与双向搬运",
+    "doc": "流处理：Grain 合包与双向搬运\n\nWorker 环境下每一次 `writer.write()` 都有固定开销，零碎小包会打爆 CPU，\n因此上下行都做了聚合：\n\n- `创建上行Grain合包流` / `创建上行写入队列`：上行攒够 20KB 再一次性写入目标 socket\n- `创建下行Grain发送器`：下行攒够 32KB（或尾部 512B 到达、超时 1ms）再发一个 WS frame\n- `创建Grain收纳器`：BYOB 复用底层缓冲，避免反复分配\n- `connectStreams`：把 socket.readable 接到下行发送器，把 WS 接到上行写入队列\n\n另含 `WebSocket发送并等待`（等待上一帧发送完成再发下一帧）与 `closeSocketQuietly`。",
+    "ranges": [
+      [
+        2563,
+        3151
+      ]
+    ]
+  },
+  {
+    "id": "speedtest",
+    "file": "src/speedtest.js",
+    "title": "测速旁路与响应构造",
+    "doc": "测速旁路与响应构造\n\n目标命中 `speed.cloudflare.com` / `cp.cloudflare.com` 时，Worker 直接本地\n构造 204 响应应答（`构造本地204响应` / `构造WS本地204响应`），\n根本不出网 —— 既是性能优化，也避免测速流量形成可识别特征。",
+    "ranges": [
+      [
+        3152,
+        3189
+      ]
+    ]
+  },
+  {
+    "id": "subscription",
+    "file": "src/subscription.js",
+    "title": "订阅生成与配置热补丁",
+    "doc": "订阅生成与配置热补丁\n\n- `读取config_JSON`：从 KV 读取配置，缺项补默认值，env 优先级高于 KV\n- `base64SecretEncode` / `base64SecretDecode`：用 userID 做密钥的\n  base64+AES 混淆，用于在订阅里安全携带代理参数\n- `Clash订阅配置文件热补丁` / `Singbox订阅配置文件热补丁` / `Surge订阅配置文件热补丁`：\n  拉取上游订阅后，按客户端格式注入/改写节点、传输参数、DNS 策略、ECH 等\n- `请求日志记录`：把订阅/代理请求写入 KV 供后台面板展示",
+    "ranges": [
+      [
+        4796,
+        4861
+      ],
+      [
+        4866,
+        5436
+      ],
+      [
+        5484,
+        5892
+      ]
+    ]
+  },
+  {
+    "id": "common",
+    "file": "src/common.js",
+    "title": "通用工具：日志、MD5、随机路径、DoH、优选 API",
+    "doc": "通用工具\n\n- `log`：受 `调试日志打印` 开关控制的调试日志出口（DEBUG 环境变量）\n- `MD5MD5`：二次 MD5，用于派生订阅 token / UUID / 登录 Cookie\n- `随机路径`：从 267 词表中无偏抽取 1~3 段拼成伪装路径\n- `DoH查询`：DNS-over-HTTPS 解析，带 256 条缓存，供预加载竞速拨号使用\n- `识别运营商` / `生成随机IP` / `请求优选API`：优选 IP 与运营商识别\n- `getCloudflareUsage`：调用 CF API 查询账户用量（后台面板用）\n- `掩码敏感信息`：日志脱敏",
+    "ranges": [
+      [
+        4862,
+        4864
+      ],
+      [
+        5437,
+        5483
+      ],
+      [
+        5893,
+        6218
+      ]
+    ]
+  },
+  {
+    "id": "proxy-config",
+    "file": "src/proxy-config.js",
+    "title": "反代参数解析与优选入口",
+    "doc": "反代参数解析与优选入口\n\n`反代参数获取` 从 URL 的 path 与 query 中解析出本连接的出站策略：\n\n- `/proxyip=<ip>` 或 `?proxyip=<ip>` → 指定反代 IP（关闭兜底）\n- `/socks5=user:pass@host:port` / `?socks5=…` → SOCKS5\n- `/http://…` `/https://…` `/turn://…` `/sstp://…` → 对应协议（带 `//` 的形式默认为全局生效）\n- `/video/<base64>` → 链式代理，负载均衡式的多跳配置\n\n另外解析 Trojan fallback 地址（`?trojan=host:port`）与 SOCKS5 账号。",
+    "ranges": [
+      [
+        6219,
+        6393
+      ]
+    ]
+  },
+  {
+    "id": "utils-bytes-md5",
+    "file": "src/utils/bytes.js",
+    "title": "底层字节工具与 MD5",
+    "doc": "底层字节工具与 MD5\n\n**字节工具**\n- `数据转Uint8Array`：把 ArrayBuffer / TypedArray / 数字统一成 Uint8Array\n- `拼接字节数据`：可变参数拼接，输出单个 Uint8Array\n\n**MD5（纯 JS 实现）**\n\n为什么不用 `crypto.subtle.digest('MD5')`：WebCrypto 规范并不包含 MD5，\n在标准运行时（Node / 浏览器 / Deno）会抛 `NotSupportedError`，\n仅 Cloudflare Workers 提供了非标准扩展。本实现与原生 MD5 逐字节一致\n（已用 3530 组向量含全部填充块边界验证），保证任意运行时可用、\n且输出不变 —— 订阅 token / UUID / 登录 Cookie 全部不受影响。\n\n支撑函数：`MD5计算字节`（返回 16 字节摘要）、`MD5转十六进制`（转小写十六进制串）。\n`MD5移位表` / `MD5常量表` 是标准 MD5 的 64 轮常量（`floor(abs(sin(i+1)) * 2^32)`）。\n\n注意：本文件与 net/tls.js 中的 `concatBytes` 语义相近但不同，\n后者可接受普通数字数组用于拼装 TLS 记录。",
+    "ranges": [
+      [
+        2023,
+        2032
+      ],
+      [
+        2033,
+        2095
+      ]
+    ]
+  },
+  {
+    "id": "web",
+    "file": "src/web.js",
+    "title": "伪装页面与杂项",
+    "doc": "伪装页面与杂项\n\n- `sha224`：Trojan 密码哈希\n- `解析地址端口`：优选订阅生成器的地址解析\n- `nginx` / `html1101`：伪装成 nginx 欢迎页 / Cloudflare 1101 错误页，\n  用于探测与被动扫描时保持\"正常网站\"表象",
+    "ranges": [
+      [
+        6394,
+        6691
+      ]
+    ]
+  }
+]
