@@ -16,7 +16,7 @@
  *   GET  /admin/getCloudflareUsage?Email=&GlobalAPIKey=…  查询账户用量
  *   POST /logout                   退出登录
  */
-import { page } from './assets.js';
+import { page } from './frame.js';
 
 export const ADMIN_HTML = page('edgetunnel · 管理面板', `
 <div class="wrap">
@@ -25,19 +25,19 @@ export const ADMIN_HTML = page('edgetunnel · 管理面板', `
     <span class="badge" id="badge-node">节点加载中…</span>
     <span class="spacer"></span>
     <span class="ver" id="ver"></span>
-    <button class="btn ghost sm" id="btn-refresh">刷新</button>
-    <a class="btn ghost sm" href="/logout">退出</a>
+    <button class="btn quiet sm" id="btn-refresh">刷新</button>
+    <a class="btn quiet sm" href="/logout">退出</a>
   </header>
 
   <div id="msg" class="notice" hidden></div>
 
-  <nav class="tabs" role="tablist">
+  <nav class="seg" role="tablist">
     <button role="tab" aria-selected="true"  data-tab="overview">概览</button>
-    <button role="tab" aria-selected="false" data-tab="basic">基础配置</button>
-    <button role="tab" aria-selected="false" data-tab="advanced">进阶选项</button>
-    <button role="tab" aria-selected="false" data-tab="subscribe">订阅生成</button>
-    <button role="tab" aria-selected="false" data-tab="proxy">优选与代理</button>
-    <button role="tab" aria-selected="false" data-tab="integrations">通知与用量</button>
+    <button role="tab" aria-selected="false" data-tab="basic">基础</button>
+    <button role="tab" aria-selected="false" data-tab="advanced">进阶</button>
+    <button role="tab" aria-selected="false" data-tab="subscribe">订阅</button>
+    <button role="tab" aria-selected="false" data-tab="proxy">优选</button>
+    <button role="tab" aria-selected="false" data-tab="integrations">集成</button>
     <button role="tab" aria-selected="false" data-tab="logs">日志</button>
   </nav>
 
@@ -222,7 +222,7 @@ export const ADMIN_HTML = page('edgetunnel · 管理面板', `
 
     <div class="card">
       <div class="head">预览</div>
-      <div class="body tight"><pre class="code" id="sub-preview">加载中…</pre></div>
+      <div class="body flush"><pre class="code" id="sub-preview">加载中…</pre></div>
     </div>
   </section>
 
@@ -408,10 +408,10 @@ async function copy(text) {
 }
 
 /* ---------- 标签页 ---------- */
-document.querySelectorAll('.tabs button').forEach(function (btn) {
+document.querySelectorAll('.seg button').forEach(function (btn) {
   btn.addEventListener('click', function () {
     var name = btn.dataset.tab;
-    document.querySelectorAll('.tabs button').forEach(function (b) {
+    document.querySelectorAll('.seg button').forEach(function (b) {
       b.setAttribute('aria-selected', String(b === btn));
     });
     document.querySelectorAll('.tabpanel').forEach(function (p) {
@@ -724,7 +724,7 @@ async function loadLogs() {
           });
       };
       return '<tr><td class="mono small">' + esc(格式化时间(l.datetime || l.time || '')) + '</td>' +
-             '<td><span class="badge">' + esc(l.reqType || l.type || '') + '</span></td>' +
+             '<td><span class="pill">' + esc(l.reqType || l.type || '') + '</span></td>' +
              '<td class="mono small">' + esc(l.ip || '') + '</td>' +
              '<td class="small faint">' + esc((l.ua || '').slice(0, 40)) + '</td>' +
              '<td class="small muted">' + esc(l.remarks || l.note || '') + '</td></tr>';

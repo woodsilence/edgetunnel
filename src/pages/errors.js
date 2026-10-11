@@ -6,7 +6,7 @@
  *   - noKV   ：未绑定 KV 命名空间
  * 两者原本返回 404，这里沿用相同状态码，仅替换展示内容。
  */
-import { page } from './assets.js';
+import { page } from './frame.js';
 
 /** 通用提示页骨架 */
 function noticePage(title, badge, heading, desc, hint) {
@@ -21,7 +21,7 @@ function noticePage(title, badge, heading, desc, hint) {
     <div class="card">
       <div class="body">
         <div class="row" style="justify-content:center;margin-bottom:14px">
-          <span class="badge ${badge.kind}">${badge.text}</span>
+          <span class="pill ${badge.kind}">${badge.text}</span>
         </div>
         <div style="font-size:13px;line-height:1.75">${hint}</div>
       </div>

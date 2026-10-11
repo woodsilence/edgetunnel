@@ -9,7 +9,7 @@
  *
  * 提交后由 Worker 下发 HttpOnly Cookie，故此处不接触密钥。
  */
-import { page } from './assets.js';
+import { page } from './frame.js';
 
 export const LOGIN_HTML = page('edgetunnel · 管理登录', `
 <div class="login-wrap">

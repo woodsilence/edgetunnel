@@ -96,8 +96,30 @@ writeFileSync(join(ROOT, 'preview', 'admin.html'), html);
 const loginHtml = await (await worker.fetch(mk('/login'), env, ctx)).text();
 writeFileSync(join(ROOT, 'preview', 'login.html'), loginHtml);
 
+// 两个提示页。它们不是按路径触发的，而是由 env 条件触发：
+//   未配置密码页：!管理员密码 —— 管理员密码取值链含 env.UUID/KEY，故 env 必须完全为空
+//   未绑定 KV  页：有 ADMIN 但无 KV 绑定
+const mkPage = async (label, env) => {
+  const res = await worker.fetch(mk('/'), env, ctx);
+  return { status: res.status, html: await res.text(), label };
+};
+
+const noAdmin = await mkPage('no-admin', {});
+const noKv = await mkPage('no-kv', { ADMIN });
+
+if (noAdmin.status !== 404 || !noAdmin.html.includes('尚未设置管理员密码')) {
+  throw new Error('未配置密码页未按预期命中（status=' + noAdmin.status + '）');
+}
+if (noKv.status !== 404 || !noKv.html.includes('尚未绑定 KV 命名空间')) {
+  throw new Error('未绑定 KV 页未按预期命中（status=' + noKv.status + '）');
+}
+writeFileSync(join(ROOT, 'preview', 'no-admin.html'), noAdmin.html);
+writeFileSync(join(ROOT, 'preview', 'no-kv.html'), noKv.html);
+
 writeFileSync(join(ROOT, 'preview', 'config.json'), JSON.stringify(cfg, null, 2));
 
-console.log('✔ preview/admin.html  已生成（含演示数据）');
-console.log('✔ preview/login.html  已生成');
-console.log('✔ preview/config.json 已生成');
+console.log('✔ preview/admin.html   已生成（含演示数据）');
+console.log('✔ preview/login.html   已生成');
+console.log(`✔ preview/no-admin.html 已生成（${noAdmin.status}）`);
+console.log(`✔ preview/no-kv.html    已生成（${noKv.status}）`);
+console.log('✔ preview/config.json   已生成');
