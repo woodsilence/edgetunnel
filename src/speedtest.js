@@ -8,8 +8,8 @@
  * ── 本模块导出 3 个符号，依赖 3 个内部模块 ──
  */
 
-import { 有效数据长度 } from './transport/xhttp.js';
-import { log } from './logging.js';;
+import { 有效数据长度 } from './net/tcp.js';
+import { log } from './logging.js';
 import { 数据转Uint8Array } from './utils/bytes.js';
 
 function isSpeedTestSite(hostname) {

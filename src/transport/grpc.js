@@ -9,13 +9,13 @@
  */
 
 import { 下行Grain包字节 } from './../constants.js';
-import { 有效数据长度, 失效TCP连接世代 } from './xhttp.js';
+import { 有效数据长度, 失效TCP连接世代, 开始TCP连接世代 } from './../net/tcp.js';
 import { 解析木马请求, 转发木马UDP数据 } from './../protocol/trojan.js';
 import { 解析魏烈思请求 } from './../protocol/vless.js';
 import { forwardataTCP, forwardataudp } from './../outbound/forward.js';
 import { 创建上行写入队列 } from './../stream.js';
 import { isSpeedTestSite, 构造本地204响应 } from './../speedtest.js';
-import { log } from './../logging.js';;
+import { log } from './../logging.js';
 import { 数据转Uint8Array } from './../utils/bytes.js';
 
 async function 处理gRPC请求(request, yourUUID, 反代上下文 = {}) {

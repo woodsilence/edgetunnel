@@ -12,10 +12,10 @@
  * ── 本模块导出 3 个符号，依赖 5 个内部模块 ──
  */
 
-import { 有效数据长度 } from './../transport/xhttp.js';
+import { 有效数据长度 } from './../net/tcp.js';
 import { TlsClient } from './../net/tls.js';
-import { stripIPv6Brackets, isIPHostname } from './turn.js';
-import { log } from './../logging.js';;
+import { stripIPv6Brackets, isIPHostname } from './../net/addr.js';
+import { log } from './../logging.js';
 import { 数据转Uint8Array, 拼接字节数据 } from './../utils/bytes.js';
 
 async function socks5Connect(targetHost, targetPort, initialData, TCP连接, parsedSocks5) {

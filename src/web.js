@@ -9,9 +9,9 @@
  * ── 本模块导出 5 个符号，依赖 2 个内部模块 ──
  */
 
-import { DoH查询 } from './subscription.js';
+import { DoH查询 } from './net/dns.js';
 import { log } from './logging.js';
-import { 整理成数组 } from './net/ips.js';;
+import { 整理成数组 } from './net/ips.js';
 
 async function getCloudflareUsage(Email, GlobalAPIKey, AccountID, APIToken) {
 	const API = "https://api.cloudflare.com/client/v4";

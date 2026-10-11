@@ -40,6 +40,86 @@ var \u7279\u5F81\u7801\u5B57\u5178 = [
   String(2407 * 300 - 10).split("").reverse().join("")
 ];
 
+// src/net/tcp.js
+function \u6709\u6548\u6570\u636E\u957F\u5EA62(data) {
+  if (!data) return 0;
+  if (typeof data.byteLength === "number") return data.byteLength;
+  if (typeof data.length === "number") return data.length;
+  return 0;
+}
+function \u5931\u6548TCP\u8FDE\u63A5\u4E16\u4EE32(remoteConnWrapper) {
+  if (!remoteConnWrapper) return;
+  remoteConnWrapper.generation = (Number.isInteger(remoteConnWrapper.generation) ? remoteConnWrapper.generation : 0) + 1;
+  const socket = remoteConnWrapper.socket;
+  remoteConnWrapper.socket = null;
+  remoteConnWrapper.downlinkController = null;
+  remoteConnWrapper.downlinkDrain = Promise.resolve();
+  try {
+    socket?.close?.();
+  } catch (e) {
+  }
+}
+function \u5F00\u59CBTCP\u8FDE\u63A5\u4E16\u4EE3(remoteConnWrapper) {
+  if (!Number.isInteger(remoteConnWrapper.generation)) remoteConnWrapper.generation = 0;
+  const generation = ++remoteConnWrapper.generation;
+  const previousSocket = remoteConnWrapper.socket;
+  remoteConnWrapper.socket = null;
+  const previousDownlink = remoteConnWrapper.downlinkController;
+  remoteConnWrapper.downlinkController = null;
+  const previousDrain = remoteConnWrapper.downlinkDrain || Promise.resolve();
+  let currentDrain;
+  try {
+    currentDrain = previousDownlink?.\u505C\u6B62\u5E76\u5237\u65B0?.() || Promise.resolve();
+  } catch (error) {
+    currentDrain = Promise.reject(error);
+  }
+  const downlinkDrain = Promise.all([previousDrain, currentDrain]);
+  downlinkDrain.catch(() => {
+  });
+  remoteConnWrapper.downlinkDrain = downlinkDrain;
+  try {
+    previousSocket?.close?.();
+  } catch (e) {
+  }
+  return { generation, downlinkDrain };
+}
+
+// src/net/addr.js
+function stripIPv6Brackets(hostname = "") {
+  const host = String(hostname || "").trim();
+  return host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : host;
+}
+function isIPHostname(hostname = "") {
+  const host = stripIPv6Brackets(hostname);
+  const ipv4Regex = /^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/;
+  if (ipv4Regex.test(host)) return true;
+  if (!host.includes(":")) return false;
+  try {
+    new URL(`http://[${host}]/`);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+var CONNECT_TIMEOUT_MS = 9999;
+async function withTimeout(promise, timeoutMs, message) {
+  let timer;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+      })
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+function isIPv4(value) {
+  const parts = String(value || "").split(".");
+  return parts.length === 4 && parts.every((part) => /^\d{1,3}$/.test(part) && Number(part) >= 0 && Number(part) <= 255);
+}
+
 // src/utils/bytes.js
 function \u6570\u636E\u8F6CUint8Array(data) {
   if (data instanceof Uint8Array) return data;
@@ -182,6 +262,43 @@ function \u62FC\u63A5\u5B57\u8282\u6570\u636E(...chunkList) {
     offset += c.byteLength;
   }
   return result;
+}
+
+// src/protocol/trojan-proxy.js
+async function \u8FDE\u63A5\u6728\u9A6C\u53CD\u4EE3(\u9996\u5305\u6570\u636E, TCP\u8FDE\u63A5, \u6728\u9A6C\u53CD\u4EE3\u76EE\u6807) {
+  if (!\u6728\u9A6C\u53CD\u4EE3\u76EE\u6807) throw new Error("trojan fallback is not configured");
+  const socket = TCP\u8FDE\u63A5({ hostname: stripIPv6Brackets(\u6728\u9A6C\u53CD\u4EE3\u76EE\u6807.hostname), port: \u6728\u9A6C\u53CD\u4EE3\u76EE\u6807.port });
+  let writer = null;
+  try {
+    if (socket.opened) await socket.opened;
+    if (\u6709\u6548\u6570\u636E\u957F\u5EA62(\u9996\u5305\u6570\u636E) > 0) {
+      writer = socket.writable.getWriter();
+      await writer.write(\u6570\u636E\u8F6CUint8Array(\u9996\u5305\u6570\u636E));
+    }
+    return socket;
+  } catch (error) {
+    try {
+      socket?.close?.();
+    } catch (e) {
+    }
+    throw error;
+  } finally {
+    try {
+      writer?.releaseLock();
+    } catch (e) {
+    }
+  }
+}
+function \u63D0\u53D6\u6728\u9A6C\u53CD\u4EE3\u63E1\u624B\u6570\u636E(\u9996\u5305\u6570\u636E, rawData) {
+  const \u9996\u5305 = \u6570\u636E\u8F6CUint8Array(\u9996\u5305\u6570\u636E);
+  const payload = \u6570\u636E\u8F6CUint8Array(rawData);
+  if (!payload.byteLength) return \u9996\u5305;
+  const \u63E1\u624B\u957F\u5EA6 = \u9996\u5305.byteLength - payload.byteLength;
+  if (\u63E1\u624B\u957F\u5EA6 <= 0) return \u9996\u5305;
+  for (let i = 0; i < payload.byteLength; i++) {
+    if (\u9996\u5305[\u63E1\u624B\u957F\u5EA6 + i] !== payload[i]) return \u9996\u5305;
+  }
+  return \u9996\u5305.subarray(0, \u63E1\u624B\u957F\u5EA6);
 }
 
 // src/net/tls.js
@@ -862,1198 +979,231 @@ function \u63A9\u7801\u654F\u611F\u4FE1\u606F(\u6587\u672C, \u524D\u7F00\u957F\u
   return `${\u524D\u7F00}${"*".repeat(\u661F\u53F7\u6570\u91CF)}${\u540E\u7F00}`;
 }
 
-// src/utils/hash.js
-async function MD5MD5(\u6587\u672C) {
-  const \u7F16\u7801\u5668 = new TextEncoder();
-  const \u7B2C\u4E00\u6B21\u5341\u516D\u8FDB\u5236 = MD5\u8F6C\u5341\u516D\u8FDB\u5236(\u7F16\u7801\u5668.encode(\u6587\u672C));
-  const \u7B2C\u4E8C\u6B21\u5341\u516D\u8FDB\u5236 = MD5\u8F6C\u5341\u516D\u8FDB\u5236(\u7F16\u7801\u5668.encode(\u7B2C\u4E00\u6B21\u5341\u516D\u8FDB\u5236.slice(7, 27)));
-  return \u7B2C\u4E8C\u6B21\u5341\u516D\u8FDB\u5236.toLowerCase();
-}
-
-// src/paths.js
-var \u5E38\u7528\u8DEF\u5F84\u5E38\u91CF = ["about", "account", "acg", "act", "activity", "ad", "ads", "ajax", "album", "albums", "anime", "api", "app", "apps", "archive", "archives", "article", "articles", "ask", "auth", "avatar", "bbs", "bd", "blog", "blogs", "book", "books", "bt", "buy", "cart", "category", "categories", "cb", "channel", "channels", "chat", "china", "city", "class", "classify", "clip", "clips", "club", "cn", "code", "collect", "collection", "comic", "comics", "community", "company", "config", "contact", "content", "course", "courses", "cp", "data", "detail", "details", "dh", "directory", "discount", "discuss", "dl", "dload", "doc", "docs", "document", "documents", "doujin", "download", "downloads", "drama", "edu", "en", "ep", "episode", "episodes", "event", "events", "f", "faq", "favorite", "favourites", "favs", "feedback", "file", "files", "film", "films", "forum", "forums", "friend", "friends", "game", "games", "gif", "go", "go.html", "go.php", "group", "groups", "help", "home", "hot", "htm", "html", "image", "images", "img", "index", "info", "intro", "item", "items", "ja", "jp", "jump", "jump.html", "jump.php", "jumping", "knowledge", "lang", "lesson", "lessons", "lib", "library", "link", "links", "list", "live", "lives", "m", "mag", "magnet", "mall", "manhua", "map", "member", "members", "message", "messages", "mobile", "movie", "movies", "music", "my", "new", "news", "note", "novel", "novels", "online", "order", "out", "out.html", "out.php", "outbound", "p", "page", "pages", "pay", "payment", "pdf", "photo", "photos", "pic", "pics", "picture", "pictures", "play", "player", "playlist", "post", "posts", "product", "products", "program", "programs", "project", "qa", "question", "rank", "ranking", "read", "readme", "redirect", "redirect.html", "redirect.php", "reg", "register", "res", "resource", "retrieve", "sale", "search", "season", "seasons", "section", "seller", "series", "service", "services", "setting", "settings", "share", "shop", "show", "shows", "site", "soft", "sort", "source", "special", "star", "stars", "static", "stock", "store", "stream", "streaming", "streams", "student", "study", "tag", "tags", "task", "teacher", "team", "tech", "temp", "test", "thread", "tool", "tools", "topic", "topics", "torrent", "trade", "travel", "tv", "txt", "type", "u", "upload", "uploads", "url", "urls", "user", "users", "v", "version", "videos", "view", "vip", "vod", "watch", "web", "wenku", "wiki", "work", "www", "zh", "zh-cn", "zh-tw", "zip"];
-function \u968F\u673A\u8DEF\u5F84(\u5B8C\u6574\u8282\u70B9\u8DEF\u5F84 = "/") {
-  const \u968F\u673A\u6570 = Math.floor(Math.random() * 3 + 1);
-  const \u6D17\u724C = \u5E38\u7528\u8DEF\u5F84\u5E38\u91CF.slice();
-  for (let i = 0; i < \u968F\u673A\u6570; i++) {
-    const j = i + Math.floor(Math.random() * (\u6D17\u724C.length - i));
-    [\u6D17\u724C[i], \u6D17\u724C[j]] = [\u6D17\u724C[j], \u6D17\u724C[i]];
-  }
-  const \u968F\u673A\u8DEF\u5F842 = \u6D17\u724C.slice(0, \u968F\u673A\u6570).join("/");
-  if (\u5B8C\u6574\u8282\u70B9\u8DEF\u5F84 === "/") return `/${\u968F\u673A\u8DEF\u5F842}`;
-  else return `/${\u968F\u673A\u8DEF\u5F842 + \u5B8C\u6574\u8282\u70B9\u8DEF\u5F84.replace("/?", "?")}`;
-}
-function \u66FF\u6362\u661F\u53F7\u4E3A\u968F\u673A\u5B57\u7B26(\u5185\u5BB9) {
-  if (typeof \u5185\u5BB9 !== "string" || !\u5185\u5BB9.includes("*")) return \u5185\u5BB9;
-  const \u5B57\u7B26\u96C6 = "abcdefghijklmnopqrstuvwxyz0123456789";
-  return \u5185\u5BB9.replace(/\*/g, () => {
-    let s = "";
-    for (let i = 0; i < Math.floor(Math.random() * 14) + 3; i++) s += \u5B57\u7B26\u96C6[Math.floor(Math.random() * \u5B57\u7B26\u96C6.length)];
-    return s;
-  });
-}
-
-// src/net/ips.js
-function \u8BC6\u522B\u8FD0\u8425\u5546(request) {
-  const cf = request?.cf;
-  const ASN\u8FD0\u8425\u5546\u6620\u5C04 = {
-    "4134": "ct",
-    "4809": "ct",
-    "4811": "ct",
-    "4812": "ct",
-    "4815": "ct",
-    "4837": "cu",
-    "4814": "cu",
-    "9929": "cu",
-    "17623": "cu",
-    "17816": "cu",
-    "9808": "cmcc",
-    "24400": "cmcc",
-    "56040": "cmcc",
-    "56041": "cmcc",
-    "56044": "cmcc"
-  };
-  const \u8FD0\u8425\u5546\u5173\u952E\u8BCD\u6620\u5C04 = [
-    { code: "ct", pattern: /chinanet|chinatelecom|china telecom|cn2|shtel/ },
-    { code: "cmcc", pattern: /cmi|cmnet|chinamobile|china mobile|cmcc|mobile communications/ },
-    { code: "cu", pattern: /china169|china unicom|chinaunicom|cucc|cncgroup|cuii|netcom/ }
-  ];
-  if (String(cf?.country || "").toLowerCase() !== "cn") return "cf";
-  const \u7EC4\u7EC7\u540D\u79F0 = String(cf?.asOrganization || "").toLowerCase();
-  const \u547D\u4E2D\u8FD0\u8425\u5546 = \u8FD0\u8425\u5546\u5173\u952E\u8BCD\u6620\u5C04.find(({ pattern }) => pattern.test(\u7EC4\u7EC7\u540D\u79F0))?.code;
-  return \u547D\u4E2D\u8FD0\u8425\u5546 || ASN\u8FD0\u8425\u5546\u6620\u5C04[String(cf?.asn || "")] || "cf";
-}
-async function \u751F\u6210\u968F\u673AIP(request, count = 16, \u6307\u5B9A\u7AEF\u53E3 = -1) {
-  const url = new URL(request.url);
-  const \u67E5\u8BE2\u53C2\u6570\u8FD0\u8425\u5546 = String(url.searchParams.get("cnIspCode") || "").toLowerCase();
-  const \u8FD0\u8425\u5546\u6587\u4EF6\u6807\u8BC6 = ["ct", "cu", "cmcc", "cf"].includes(\u67E5\u8BE2\u53C2\u6570\u8FD0\u8425\u5546) ? \u67E5\u8BE2\u53C2\u6570\u8FD0\u8425\u5546 : \u8BC6\u522B\u8FD0\u8425\u5546(request);
-  const \u8FD0\u8425\u5546\u540D\u79F0\u6620\u5C04 = {
-    cmcc: "CF\u79FB\u52A8\u4F18\u9009",
-    cu: "CF\u8054\u901A\u4F18\u9009",
-    ct: "CF\u7535\u4FE1\u4F18\u9009",
-    cf: "CF\u5B98\u65B9\u4F18\u9009"
-  };
-  const cidr_url = \u8FD0\u8425\u5546\u6587\u4EF6\u6807\u8BC6 === "cf" ? `https://raw.githubusercontent.com/${\u7279\u5F81\u7801\u5B57\u5178[1]}/${\u7279\u5F81\u7801\u5B57\u5178[1]}/main/CF-CIDR.txt` : `https://raw.githubusercontent.com/${\u7279\u5F81\u7801\u5B57\u5178[1]}/${\u7279\u5F81\u7801\u5B57\u5178[1]}/main/CF-CIDR/${\u8FD0\u8425\u5546\u6587\u4EF6\u6807\u8BC6}.txt`;
-  const cfname = \u8FD0\u8425\u5546\u540D\u79F0\u6620\u5C04[\u8FD0\u8425\u5546\u6587\u4EF6\u6807\u8BC6] || "CF\u5B98\u65B9\u4F18\u9009";
-  const cfport = [443, 2053, 2083, 2087, 2096, 8443];
-  let cidrList = [];
+// src/outbound/proxies.js
+async function socks5Connect(targetHost, targetPort, initialData, TCP\u8FDE\u63A5, parsedSocks5) {
+  const { username, password, hostname, port } = parsedSocks5 || {};
+  const socket = TCP\u8FDE\u63A5({ hostname, port }), writer = socket.writable.getWriter(), reader = socket.readable.getReader();
   try {
-    const res = await fetch(cidr_url);
-    cidrList = res.ok ? await \u6574\u7406\u6210\u6570\u7EC4(await res.text()) : ["104.16.0.0/13"];
-  } catch {
-    cidrList = ["104.16.0.0/13"];
-  }
-  const generateRandomIPFromCIDR = (cidr) => {
-    const [baseIP, prefixLength] = cidr.split("/"), prefix = parseInt(prefixLength), hostBits = 32 - prefix;
-    const ipInt = baseIP.split(".").reduce((a, p, i) => a | parseInt(p) << 24 - i * 8, 0);
-    const randomOffset = Math.floor(Math.random() * Math.pow(2, hostBits));
-    const mask = 4294967295 << hostBits >>> 0, randomIP = ((ipInt & mask) >>> 0) + randomOffset >>> 0;
-    return [randomIP >>> 24 & 255, randomIP >>> 16 & 255, randomIP >>> 8 & 255, randomIP & 255].join(".");
-  };
-  const randomIPs = Array.from({ length: count }, (_, index) => {
-    const ip = generateRandomIPFromCIDR(cidrList[Math.floor(Math.random() * cidrList.length)]);
-    const \u76EE\u6807\u7AEF\u53E3 = \u6307\u5B9A\u7AEF\u53E3 === -1 ? cfport[Math.floor(Math.random() * cfport.length)] : \u6307\u5B9A\u7AEF\u53E3;
-    return `${ip}:${\u76EE\u6807\u7AEF\u53E3}#${cfname}${index + 1}`;
-  });
-  return [randomIPs, randomIPs.join("\n")];
-}
-async function \u6574\u7406\u6210\u6570\u7EC4(\u5185\u5BB9) {
-  var \u66FF\u6362\u540E\u7684\u5185\u5BB9 = \u5185\u5BB9.replace(/[	"'\r\n]+/g, ",").replace(/,+/g, ",");
-  if (\u66FF\u6362\u540E\u7684\u5185\u5BB9.charAt(0) == ",") \u66FF\u6362\u540E\u7684\u5185\u5BB9 = \u66FF\u6362\u540E\u7684\u5185\u5BB9.slice(1);
-  if (\u66FF\u6362\u540E\u7684\u5185\u5BB9.charAt(\u66FF\u6362\u540E\u7684\u5185\u5BB9.length - 1) == ",") \u66FF\u6362\u540E\u7684\u5185\u5BB9 = \u66FF\u6362\u540E\u7684\u5185\u5BB9.slice(0, \u66FF\u6362\u540E\u7684\u5185\u5BB9.length - 1);
-  const \u5730\u5740\u6570\u7EC4 = \u66FF\u6362\u540E\u7684\u5185\u5BB9.split(",");
-  return \u5730\u5740\u6570\u7EC4;
-}
-async function \u83B7\u53D6\u4F18\u9009\u8BA2\u9605\u751F\u6210\u5668\u6570\u636E(\u4F18\u9009\u8BA2\u9605\u751F\u6210\u5668HOST) {
-  let \u4F18\u9009IP = [], \u5176\u4ED6\u8282\u70B9LINK = "", \u683C\u5F0F\u5316HOST = \u4F18\u9009\u8BA2\u9605\u751F\u6210\u5668HOST.replace(/^sub:\/\//i, "https://").split("#")[0].split("?")[0];
-  if (!/^https?:\/\//i.test(\u683C\u5F0F\u5316HOST)) \u683C\u5F0F\u5316HOST = `https://${\u683C\u5F0F\u5316HOST}`;
-  try {
-    const url = new URL(\u683C\u5F0F\u5316HOST);
-    \u683C\u5F0F\u5316HOST = url.origin;
+    const authMethods = username && password ? new Uint8Array([5, 2, 0, 2]) : new Uint8Array([5, 1, 0]);
+    await writer.write(authMethods);
+    let response = await reader.read();
+    if (response.done || response.value.byteLength < 2) throw new Error("S5 method selection failed");
+    const selectedMethod = new Uint8Array(response.value)[1];
+    if (selectedMethod === 2) {
+      if (!username || !password) throw new Error("S5 requires authentication");
+      const userBytes = new TextEncoder().encode(username), passBytes = new TextEncoder().encode(password);
+      const authPacket = new Uint8Array([1, userBytes.length, ...userBytes, passBytes.length, ...passBytes]);
+      await writer.write(authPacket);
+      response = await reader.read();
+      if (response.done || new Uint8Array(response.value)[1] !== 0) throw new Error("S5 authentication failed");
+    } else if (selectedMethod !== 0) throw new Error(`S5 unsupported auth method: ${selectedMethod}`);
+    const hostBytes = new TextEncoder().encode(targetHost);
+    const connectPacket = new Uint8Array([5, 1, 0, 3, hostBytes.length, ...hostBytes, targetPort >> 8, targetPort & 255]);
+    await writer.write(connectPacket);
+    response = await reader.read();
+    if (response.done || new Uint8Array(response.value)[1] !== 0) throw new Error("S5 connection failed");
+    if (\u6709\u6548\u6570\u636E\u957F\u5EA62(initialData) > 0) await writer.write(initialData);
+    writer.releaseLock();
+    reader.releaseLock();
+    return socket;
   } catch (error) {
-    \u4F18\u9009IP.push(`127.0.0.1:1234#${\u4F18\u9009\u8BA2\u9605\u751F\u6210\u5668HOST}\u4F18\u9009\u8BA2\u9605\u751F\u6210\u5668\u683C\u5F0F\u5316\u5F02\u5E38:${error.message}`);
-    return [\u4F18\u9009IP, \u5176\u4ED6\u8282\u70B9LINK];
-  }
-  const \u4F18\u9009\u8BA2\u9605\u751F\u6210\u5668URL = `${\u683C\u5F0F\u5316HOST}/sub?host=example.com&uuid=00000000-0000-4000-8000-000000000000`;
-  try {
-    const response = await fetch(\u4F18\u9009\u8BA2\u9605\u751F\u6210\u5668URL, {
-      headers: { "User-Agent": "v2rayN/edgetunnel (https://github.com/" + \u7279\u5F81\u7801\u5B57\u5178[1] + "/edgetunnel)" }
-    });
-    if (!response.ok) {
-      \u4F18\u9009IP.push(`127.0.0.1:1234#${\u4F18\u9009\u8BA2\u9605\u751F\u6210\u5668HOST}\u4F18\u9009\u8BA2\u9605\u751F\u6210\u5668\u5F02\u5E38:${response.statusText}`);
-      return [\u4F18\u9009IP, \u5176\u4ED6\u8282\u70B9LINK];
-    }
-    const \u4F18\u9009\u8BA2\u9605\u751F\u6210\u5668\u8FD4\u56DE\u8BA2\u9605\u5185\u5BB9 = atob(await response.text());
-    const \u8BA2\u9605\u884C\u5217\u8868 = \u4F18\u9009\u8BA2\u9605\u751F\u6210\u5668\u8FD4\u56DE\u8BA2\u9605\u5185\u5BB9.includes("\r\n") ? \u4F18\u9009\u8BA2\u9605\u751F\u6210\u5668\u8FD4\u56DE\u8BA2\u9605\u5185\u5BB9.split("\r\n") : \u4F18\u9009\u8BA2\u9605\u751F\u6210\u5668\u8FD4\u56DE\u8BA2\u9605\u5185\u5BB9.split("\n");
-    for (const \u884C\u5185\u5BB9 of \u8BA2\u9605\u884C\u5217\u8868) {
-      if (!\u884C\u5185\u5BB9.trim()) continue;
-      if (\u884C\u5185\u5BB9.includes("00000000-0000-4000-8000-000000000000") && \u884C\u5185\u5BB9.includes("example.com")) {
-        const \u5730\u5740\u5339\u914D = \u884C\u5185\u5BB9.match(/:\/\/[^@]+@([^?]+)/);
-        if (\u5730\u5740\u5339\u914D) {
-          let \u5730\u5740\u7AEF\u53E3 = \u5730\u5740\u5339\u914D[1], \u5907\u6CE8 = "";
-          const \u5907\u6CE8\u5339\u914D = \u884C\u5185\u5BB9.match(/#(.+)$/);
-          if (\u5907\u6CE8\u5339\u914D) \u5907\u6CE8 = "#" + decodeURIComponent(\u5907\u6CE8\u5339\u914D[1]);
-          \u4F18\u9009IP.push(\u5730\u5740\u7AEF\u53E3 + \u5907\u6CE8);
-        }
-      } else {
-        \u5176\u4ED6\u8282\u70B9LINK += \u884C\u5185\u5BB9 + "\n";
-      }
-    }
-  } catch (error) {
-    \u4F18\u9009IP.push(`127.0.0.1:1234#${\u4F18\u9009\u8BA2\u9605\u751F\u6210\u5668HOST}\u4F18\u9009\u8BA2\u9605\u751F\u6210\u5668\u5F02\u5E38:${error.message}`);
-  }
-  return [\u4F18\u9009IP, \u5176\u4ED6\u8282\u70B9LINK];
-}
-async function \u8BF7\u6C42\u4F18\u9009API(urls, \u9ED8\u8BA4\u7AEF\u53E3 = "443", \u8D85\u65F6\u65F6\u95F4 = 3e3) {
-  if (!urls?.length) return [[], [], [], []];
-  const results = /* @__PURE__ */ new Set(), \u53CD\u4EE3IP\u6C60 = /* @__PURE__ */ new Set();
-  let \u8BA2\u9605\u94FE\u63A5\u54CD\u5E94\u7684\u660E\u6587LINK\u5185\u5BB9 = "", \u9700\u8981\u8BA2\u9605\u8F6C\u6362\u8BA2\u9605URLs = [];
-  await Promise.allSettled(urls.map(async (url) => {
-    const hashIndex = url.indexOf("#");
-    const urlWithoutHash = hashIndex > -1 ? url.substring(0, hashIndex) : url;
-    const API\u5907\u6CE8\u540D = hashIndex > -1 ? decodeURIComponent(url.substring(hashIndex + 1)) : null;
-    const \u4F18\u9009IP\u4F5C\u4E3A\u53CD\u4EE3IP = url.toLowerCase().includes("proxyip=true");
-    if (urlWithoutHash.toLowerCase().startsWith("sub://")) {
-      try {
-        const [\u4F18\u9009IP, \u5176\u4ED6\u8282\u70B9LINK] = await \u83B7\u53D6\u4F18\u9009\u8BA2\u9605\u751F\u6210\u5668\u6570\u636E(urlWithoutHash);
-        if (API\u5907\u6CE8\u540D) {
-          for (const ip of \u4F18\u9009IP) {
-            const \u5904\u7406\u540EIP = ip.includes("#") ? `${ip} [${API\u5907\u6CE8\u540D}]` : `${ip}#[${API\u5907\u6CE8\u540D}]`;
-            results.add(\u5904\u7406\u540EIP);
-            if (\u4F18\u9009IP\u4F5C\u4E3A\u53CD\u4EE3IP) \u53CD\u4EE3IP\u6C60.add(ip.split("#")[0]);
-          }
-        } else {
-          for (const ip of \u4F18\u9009IP) {
-            results.add(ip);
-            if (\u4F18\u9009IP\u4F5C\u4E3A\u53CD\u4EE3IP) \u53CD\u4EE3IP\u6C60.add(ip.split("#")[0]);
-          }
-        }
-        if (\u5176\u4ED6\u8282\u70B9LINK && typeof \u5176\u4ED6\u8282\u70B9LINK === "string" && API\u5907\u6CE8\u540D) {
-          const \u5904\u7406\u540ELINK\u5185\u5BB9 = \u5176\u4ED6\u8282\u70B9LINK.replace(/([a-z][a-z0-9+\-.]*:\/\/[^\r\n]*?)(\r?\n|$)/gi, (match, link, lineEnd) => {
-            const \u5B8C\u6574\u94FE\u63A5 = link.includes("#") ? `${link}${encodeURIComponent(` [${API\u5907\u6CE8\u540D}]`)}` : `${link}${encodeURIComponent(`#[${API\u5907\u6CE8\u540D}]`)}`;
-            return `${\u5B8C\u6574\u94FE\u63A5}${lineEnd}`;
-          });
-          \u8BA2\u9605\u94FE\u63A5\u54CD\u5E94\u7684\u660E\u6587LINK\u5185\u5BB9 += \u5904\u7406\u540ELINK\u5185\u5BB9;
-        } else if (\u5176\u4ED6\u8282\u70B9LINK && typeof \u5176\u4ED6\u8282\u70B9LINK === "string") {
-          \u8BA2\u9605\u94FE\u63A5\u54CD\u5E94\u7684\u660E\u6587LINK\u5185\u5BB9 += \u5176\u4ED6\u8282\u70B9LINK;
-        }
-      } catch (e) {
-      }
-      return;
-    }
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), \u8D85\u65F6\u65F6\u95F4);
-      const response = await fetch(urlWithoutHash, { signal: controller.signal });
-      clearTimeout(timeoutId);
-      let text = "";
-      try {
-        const buffer = await response.arrayBuffer();
-        const contentType = (response.headers.get("content-type") || "").toLowerCase();
-        const charset = contentType.match(/charset=([^\s;]+)/i)?.[1]?.toLowerCase() || "";
-        let decoders = ["utf-8", "gb2312"];
-        if (charset.includes("gb") || charset.includes("gbk") || charset.includes("gb2312")) {
-          decoders = ["gb2312", "utf-8"];
-        }
-        let decodeSuccess = false;
-        for (const decoder of decoders) {
-          try {
-            const decoded = new TextDecoder(decoder).decode(buffer);
-            if (decoded && decoded.length > 0 && !decoded.includes("\uFFFD")) {
-              text = decoded;
-              decodeSuccess = true;
-              break;
-            } else if (decoded && decoded.length > 0) {
-              continue;
-            }
-          } catch (e) {
-            continue;
-          }
-        }
-        if (!decodeSuccess) {
-          text = await response.text();
-        }
-        if (!text || text.trim().length === 0) {
-          return;
-        }
-      } catch (e) {
-        log("Failed to decode response:", e);
-        return;
-      }
-      let \u9884\u5904\u7406\u8BA2\u9605\u660E\u6587\u5185\u5BB9 = text;
-      const cleanText = typeof text === "string" ? text.replace(/\s/g, "") : "";
-      if (cleanText.length > 0 && cleanText.length % 4 === 0 && /^[A-Za-z0-9+/]+={0,2}$/.test(cleanText)) {
-        try {
-          const bytes = new Uint8Array(atob(cleanText).split("").map((c) => c.charCodeAt(0)));
-          \u9884\u5904\u7406\u8BA2\u9605\u660E\u6587\u5185\u5BB9 = new TextDecoder("utf-8").decode(bytes);
-        } catch {
-        }
-      }
-      if (\u9884\u5904\u7406\u8BA2\u9605\u660E\u6587\u5185\u5BB9.split("#")[0].includes("://")) {
-        if (API\u5907\u6CE8\u540D) {
-          const \u5904\u7406\u540ELINK\u5185\u5BB9 = \u9884\u5904\u7406\u8BA2\u9605\u660E\u6587\u5185\u5BB9.replace(/([a-z][a-z0-9+\-.]*:\/\/[^\r\n]*?)(\r?\n|$)/gi, (match, link, lineEnd) => {
-            const \u5B8C\u6574\u94FE\u63A5 = link.includes("#") ? `${link}${encodeURIComponent(` [${API\u5907\u6CE8\u540D}]`)}` : `${link}${encodeURIComponent(`#[${API\u5907\u6CE8\u540D}]`)}`;
-            return `${\u5B8C\u6574\u94FE\u63A5}${lineEnd}`;
-          });
-          \u8BA2\u9605\u94FE\u63A5\u54CD\u5E94\u7684\u660E\u6587LINK\u5185\u5BB9 += \u5904\u7406\u540ELINK\u5185\u5BB9 + "\n";
-        } else {
-          \u8BA2\u9605\u94FE\u63A5\u54CD\u5E94\u7684\u660E\u6587LINK\u5185\u5BB9 += \u9884\u5904\u7406\u8BA2\u9605\u660E\u6587\u5185\u5BB9 + "\n";
-        }
-        return;
-      }
-      const lines = text.trim().split("\n").map((l) => l.trim()).filter((l) => l);
-      const isCSV = lines.length > 1 && lines[0].includes(",");
-      const IPV6_PATTERN = /^[^\[\]]*:[^\[\]]*:[^\[\]]/;
-      const parsedUrl = new URL(urlWithoutHash);
-      if (!isCSV) {
-        lines.forEach((line) => {
-          const lineHashIndex = line.indexOf("#");
-          const [hostPart, remark] = lineHashIndex > -1 ? [line.substring(0, lineHashIndex), line.substring(lineHashIndex)] : [line, ""];
-          let hasPort = false;
-          if (hostPart.startsWith("[")) {
-            hasPort = /\]:(\d+)$/.test(hostPart);
-          } else {
-            const colonIndex = hostPart.lastIndexOf(":");
-            hasPort = colonIndex > -1 && /^\d+$/.test(hostPart.substring(colonIndex + 1));
-          }
-          const port = parsedUrl.searchParams.get("port") || \u9ED8\u8BA4\u7AEF\u53E3;
-          const ipItem = hasPort ? line : `${hostPart}:${port}${remark}`;
-          if (API\u5907\u6CE8\u540D) {
-            const \u5904\u7406\u540EIP = ipItem.includes("#") ? `${ipItem} [${API\u5907\u6CE8\u540D}]` : `${ipItem}#[${API\u5907\u6CE8\u540D}]`;
-            results.add(\u5904\u7406\u540EIP);
-          } else {
-            results.add(ipItem);
-          }
-          if (\u4F18\u9009IP\u4F5C\u4E3A\u53CD\u4EE3IP) \u53CD\u4EE3IP\u6C60.add(ipItem.split("#")[0]);
-        });
-      } else {
-        const headers = lines[0].split(",").map((h) => h.trim());
-        const dataLines = lines.slice(1);
-        if (headers.includes("IP\u5730\u5740") && headers.includes("\u7AEF\u53E3") && headers.includes("\u6570\u636E\u4E2D\u5FC3")) {
-          const ipIdx = headers.indexOf("IP\u5730\u5740"), portIdx = headers.indexOf("\u7AEF\u53E3");
-          const remarkIdx = headers.indexOf("\u56FD\u5BB6") > -1 ? headers.indexOf("\u56FD\u5BB6") : headers.indexOf("\u57CE\u5E02") > -1 ? headers.indexOf("\u57CE\u5E02") : headers.indexOf("\u6570\u636E\u4E2D\u5FC3");
-          const tlsIdx = headers.indexOf("TLS");
-          dataLines.forEach((line) => {
-            const cols = line.split(",").map((c) => c.trim());
-            if (tlsIdx !== -1 && cols[tlsIdx]?.toLowerCase() !== "true") return;
-            const wrappedIP = IPV6_PATTERN.test(cols[ipIdx]) ? `[${cols[ipIdx]}]` : cols[ipIdx];
-            const ipItem = `${wrappedIP}:${cols[portIdx]}#${cols[remarkIdx]}`;
-            if (API\u5907\u6CE8\u540D) {
-              const \u5904\u7406\u540EIP = `${ipItem} [${API\u5907\u6CE8\u540D}]`;
-              results.add(\u5904\u7406\u540EIP);
-            } else {
-              results.add(ipItem);
-            }
-            if (\u4F18\u9009IP\u4F5C\u4E3A\u53CD\u4EE3IP) \u53CD\u4EE3IP\u6C60.add(`${wrappedIP}:${cols[portIdx]}`);
-          });
-        } else if (headers.some((h) => h.includes("IP")) && headers.some((h) => h.includes("\u5EF6\u8FDF")) && headers.some((h) => h.includes("\u4E0B\u8F7D\u901F\u5EA6"))) {
-          const ipIdx = headers.findIndex((h) => h.includes("IP"));
-          const delayIdx = headers.findIndex((h) => h.includes("\u5EF6\u8FDF"));
-          const speedIdx = headers.findIndex((h) => h.includes("\u4E0B\u8F7D\u901F\u5EA6"));
-          const port = parsedUrl.searchParams.get("port") || \u9ED8\u8BA4\u7AEF\u53E3;
-          dataLines.forEach((line) => {
-            const cols = line.split(",").map((c) => c.trim());
-            const wrappedIP = IPV6_PATTERN.test(cols[ipIdx]) ? `[${cols[ipIdx]}]` : cols[ipIdx];
-            const ipItem = `${wrappedIP}:${port}#CF\u4F18\u9009 ${cols[delayIdx]}ms ${cols[speedIdx]}MB/s`;
-            if (API\u5907\u6CE8\u540D) {
-              const \u5904\u7406\u540EIP = `${ipItem} [${API\u5907\u6CE8\u540D}]`;
-              results.add(\u5904\u7406\u540EIP);
-            } else {
-              results.add(ipItem);
-            }
-            if (\u4F18\u9009IP\u4F5C\u4E3A\u53CD\u4EE3IP) \u53CD\u4EE3IP\u6C60.add(`${wrappedIP}:${port}`);
-          });
-        }
-      }
+      writer.releaseLock();
     } catch (e) {
     }
-  }));
-  const LINK\u6570\u7EC4 = \u8BA2\u9605\u94FE\u63A5\u54CD\u5E94\u7684\u660E\u6587LINK\u5185\u5BB9.trim() ? [...new Set(\u8BA2\u9605\u94FE\u63A5\u54CD\u5E94\u7684\u660E\u6587LINK\u5185\u5BB9.split(/\r?\n/).filter((line) => line.trim() !== ""))] : [];
-  return [Array.from(results), LINK\u6570\u7EC4, \u9700\u8981\u8BA2\u9605\u8F6C\u6362\u8BA2\u9605URLs, Array.from(\u53CD\u4EE3IP\u6C60)];
-}
-
-// src/web.js
-async function getCloudflareUsage(Email, GlobalAPIKey, AccountID, APIToken) {
-  const API = "https://api.cloudflare.com/client/v4";
-  const sum = (a) => a?.reduce((t, i) => t + (i?.sum?.requests || 0), 0) || 0;
-  const cfg = { "Content-Type": "application/json" };
-  try {
-    if (!AccountID && (!Email || !GlobalAPIKey)) return { success: false, pages: 0, workers: 0, total: 0, max: 1e5 };
-    if (!AccountID) {
-      const r = await fetch(`${API}/accounts`, {
-        method: "GET",
-        headers: { ...cfg, "X-AUTH-EMAIL": Email, "X-AUTH-KEY": GlobalAPIKey }
-      });
-      if (!r.ok) throw new Error(`\u8D26\u6237\u83B7\u53D6\u5931\u8D25: ${r.status}`);
-      const d = await r.json();
-      if (!d?.result?.length) throw new Error("\u672A\u627E\u5230\u8D26\u6237");
-      const idx = d.result.findIndex((a) => a.name?.toLowerCase().startsWith(Email.toLowerCase()));
-      AccountID = d.result[idx >= 0 ? idx : 0]?.id;
+    try {
+      reader.releaseLock();
+    } catch (e) {
     }
-    const now = /* @__PURE__ */ new Date();
-    now.setUTCHours(0, 0, 0, 0);
-    const hdr = APIToken ? { ...cfg, "Authorization": `Bearer ${APIToken}` } : { ...cfg, "X-AUTH-EMAIL": Email, "X-AUTH-KEY": GlobalAPIKey };
-    const res = await fetch(`${API}/graphql`, {
-      method: "POST",
-      headers: hdr,
-      body: JSON.stringify({
-        query: `query getBillingMetrics($AccountID: String!, $filter: AccountWorkersInvocationsAdaptiveFilter_InputObject) {
-					viewer { accounts(filter: {accountTag: $AccountID}) {
-						pagesFunctionsInvocationsAdaptiveGroups(limit: 1000, filter: $filter) { sum { requests } }
-						workersInvocationsAdaptive(limit: 10000, filter: $filter) { sum { requests } }
-					} }
-				}`,
-        variables: { AccountID, filter: { datetime_geq: now.toISOString(), datetime_leq: (/* @__PURE__ */ new Date()).toISOString() } }
-      })
-    });
-    if (!res.ok) throw new Error(`\u67E5\u8BE2\u5931\u8D25: ${res.status}`);
-    const result = await res.json();
-    if (result.errors?.length) throw new Error(result.errors[0].message);
-    const acc = result?.data?.viewer?.accounts?.[0];
-    if (!acc) throw new Error("\u672A\u627E\u5230\u8D26\u6237\u6570\u636E");
-    const pages = sum(acc.pagesFunctionsInvocationsAdaptiveGroups);
-    const workers = sum(acc.workersInvocationsAdaptive);
-    const total = pages + workers;
-    const max = 1e5;
-    log(`\u7EDF\u8BA1\u7ED3\u679C - Pages: ${pages}, Workers: ${workers}, \u603B\u8BA1: ${total}, \u4E0A\u9650: 100000`);
-    return { success: true, pages, workers, total, max };
-  } catch (error) {
-    log("\u83B7\u53D6\u4F7F\u7528\u91CF\u9519\u8BEF:", error.message);
-    return { success: false, pages: 0, workers: 0, total: 0, max: 1e5 };
+    try {
+      socket.close();
+    } catch (e) {
+    }
+    throw error;
   }
 }
-function sha224(s) {
-  const K = [1116352408, 1899447441, 3049323471, 3921009573, 961987163, 1508970993, 2453635748, 2870763221, 3624381080, 310598401, 607225278, 1426881987, 1925078388, 2162078206, 2614888103, 3248222580, 3835390401, 4022224774, 264347078, 604807628, 770255983, 1249150122, 1555081692, 1996064986, 2554220882, 2821834349, 2952996808, 3210313671, 3336571891, 3584528711, 113926993, 338241895, 666307205, 773529912, 1294757372, 1396182291, 1695183700, 1986661051, 2177026350, 2456956037, 2730485921, 2820302411, 3259730800, 3345764771, 3516065817, 3600352804, 4094571909, 275423344, 430227734, 506948616, 659060556, 883997877, 958139571, 1322822218, 1537002063, 1747873779, 1955562222, 2024104815, 2227730452, 2361852424, 2428436474, 2756734187, 3204031479, 3329325298];
-  const r = (n, b) => (n >>> b | n << 32 - b) >>> 0;
-  s = unescape(encodeURIComponent(s));
-  const l = s.length * 8;
-  s += String.fromCharCode(128);
-  while (s.length * 8 % 512 !== 448) s += String.fromCharCode(0);
-  const h = [3238371032, 914150663, 812702999, 4144912697, 4290775857, 1750603025, 1694076839, 3204075428];
-  const hi = Math.floor(l / 4294967296), lo = l & 4294967295;
-  s += String.fromCharCode(hi >>> 24 & 255, hi >>> 16 & 255, hi >>> 8 & 255, hi & 255, lo >>> 24 & 255, lo >>> 16 & 255, lo >>> 8 & 255, lo & 255);
-  const w = [];
-  for (let i = 0; i < s.length; i += 4) w.push(s.charCodeAt(i) << 24 | s.charCodeAt(i + 1) << 16 | s.charCodeAt(i + 2) << 8 | s.charCodeAt(i + 3));
-  for (let i = 0; i < w.length; i += 16) {
-    const x = new Array(64).fill(0);
-    for (let j = 0; j < 16; j++) x[j] = w[i + j];
-    for (let j = 16; j < 64; j++) {
-      const s0 = r(x[j - 15], 7) ^ r(x[j - 15], 18) ^ x[j - 15] >>> 3;
-      const s1 = r(x[j - 2], 17) ^ r(x[j - 2], 19) ^ x[j - 2] >>> 10;
-      x[j] = x[j - 16] + s0 + x[j - 7] + s1 >>> 0;
-    }
-    let [a, b, c, d, e, f, g, h0] = h;
-    for (let j = 0; j < 64; j++) {
-      const S1 = r(e, 6) ^ r(e, 11) ^ r(e, 25), ch = e & f ^ ~e & g, t1 = h0 + S1 + ch + K[j] + x[j] >>> 0;
-      const S0 = r(a, 2) ^ r(a, 13) ^ r(a, 22), maj = a & b ^ a & c ^ b & c, t2 = S0 + maj >>> 0;
-      h0 = g;
-      g = f;
-      f = e;
-      e = d + t1 >>> 0;
-      d = c;
-      c = b;
-      b = a;
-      a = t1 + t2 >>> 0;
-    }
-    for (let j = 0; j < 8; j++) h[j] = h[j] + (j === 0 ? a : j === 1 ? b : j === 2 ? c : j === 3 ? d : j === 4 ? e : j === 5 ? f : j === 6 ? g : h0) >>> 0;
-  }
-  let hex = "";
-  for (let i = 0; i < 7; i++) {
-    for (let j = 24; j >= 0; j -= 8) hex += (h[i] >>> j & 255).toString(16).padStart(2, "0");
-  }
-  return hex;
-}
-async function \u89E3\u6790\u5730\u5740\u7AEF\u53E3(proxyIP, \u76EE\u6807\u57DF\u540D = "dash.cloudflare.com", UUID = "00000000-0000-4000-8000-000000000000") {
-  proxyIP = proxyIP.toLowerCase();
-  function \u89E3\u6790\u5730\u5740\u7AEF\u53E3\u5B57\u7B26\u4E32(str) {
-    let \u5730\u5740 = str, \u7AEF\u53E3 = 443;
-    if (str.includes("]:")) {
-      const parts = str.split("]:");
-      \u5730\u5740 = parts[0] + "]";
-      \u7AEF\u53E3 = parseInt(parts[1], 10) || \u7AEF\u53E3;
-    } else if ((str.match(/:/g) || []).length === 1 && !str.startsWith("[")) {
-      const colonIndex = str.lastIndexOf(":");
-      \u5730\u5740 = str.slice(0, colonIndex);
-      \u7AEF\u53E3 = parseInt(str.slice(colonIndex + 1), 10) || \u7AEF\u53E3;
-    }
-    return [\u5730\u5740, \u7AEF\u53E3];
-  }
-  function \u89E3\u6790TXT\u53CD\u4EE3\u8BB0\u5F55(txtData) {
-    return txtData.flatMap((data) => {
-      if (data.startsWith('"') && data.endsWith('"')) data = data.slice(1, -1);
-      return data.replace(/\\010/g, ",").replace(/\n/g, ",").split(",").map((s) => s.trim()).filter(Boolean);
-    }).map((prefix) => \u89E3\u6790\u5730\u5740\u7AEF\u53E3\u5B57\u7B26\u4E32(prefix));
-  }
-  const \u53CD\u4EE3IP\u6570\u7EC4 = await \u6574\u7406\u6210\u6570\u7EC4(proxyIP);
-  let \u6240\u6709\u53CD\u4EE3\u6570\u7EC4 = [];
-  const ipv4Regex = /^(25[0-5]|2[0-4]\d|[01]?\d\d?)\.(25[0-5]|2[0-4]\d|[01]?\d\d?)\.(25[0-5]|2[0-4]\d|[01]?\d\d?)\.(25[0-5]|2[0-4]\d|[01]?\d\d?)$/;
-  const ipv6Regex = /^\[?(?:[a-fA-F0-9]{0,4}:){1,7}[a-fA-F0-9]{0,4}\]?$/;
-  for (const singleProxyIP of \u53CD\u4EE3IP\u6570\u7EC4) {
-    let [\u5730\u5740, \u7AEF\u53E3] = \u89E3\u6790\u5730\u5740\u7AEF\u53E3\u5B57\u7B26\u4E32(singleProxyIP);
-    if (singleProxyIP.includes(".tp")) {
-      const tpMatch = singleProxyIP.match(/\.tp(\d+)/);
-      if (tpMatch) \u7AEF\u53E3 = parseInt(tpMatch[1], 10);
-    }
-    if (ipv4Regex.test(\u5730\u5740) || ipv6Regex.test(\u5730\u5740)) {
-      log(`[\u53CD\u4EE3\u89E3\u6790] ${\u5730\u5740} \u4E3AIP\u5730\u5740\uFF0C\u76F4\u63A5\u4F7F\u7528`);
-      \u6240\u6709\u53CD\u4EE3\u6570\u7EC4.push([\u5730\u5740, \u7AEF\u53E3]);
-      continue;
-    }
-    const [txtRecords, aRecords] = await Promise.all([
-      DoH\u67E5\u8BE2(\u5730\u5740, "TXT"),
-      DoH\u67E5\u8BE2(\u5730\u5740, "A")
-    ]);
-    const txtData = txtRecords.filter((r) => r.type === 16).map((r) => r.data);
-    const txtAddresses = \u89E3\u6790TXT\u53CD\u4EE3\u8BB0\u5F55(txtData);
-    if (txtAddresses.length > 0) {
-      log(`[\u53CD\u4EE3\u89E3\u6790] ${\u5730\u5740} \u4F7F\u7528TXT\u8BB0\u5F55\uFF0C\u5171${txtAddresses.length}\u4E2A\u7ED3\u679C`);
-      \u6240\u6709\u53CD\u4EE3\u6570\u7EC4.push(...txtAddresses);
-      continue;
-    }
-    const ipv4List = aRecords.filter((r) => r.type === 1).map((r) => r.data);
-    if (ipv4List.length > 0) {
-      log(`[\u53CD\u4EE3\u89E3\u6790] ${\u5730\u5740} \u672A\u83B7\u53D6\u5230TXT\u8BB0\u5F55\uFF0C\u4F7F\u7528A\u8BB0\u5F55\uFF0C\u5171${ipv4List.length}\u4E2A\u7ED3\u679C`);
-      \u6240\u6709\u53CD\u4EE3\u6570\u7EC4.push(...ipv4List.map((ip) => [ip, \u7AEF\u53E3]));
-      continue;
-    }
-    const aaaaRecords = await DoH\u67E5\u8BE2(\u5730\u5740, "AAAA");
-    const ipv6List = aaaaRecords.filter((r) => r.type === 28).map((r) => `[${r.data}]`);
-    if (ipv6List.length > 0) {
-      log(`[\u53CD\u4EE3\u89E3\u6790] ${\u5730\u5740} \u672A\u83B7\u53D6\u5230TXT\u548CA\u8BB0\u5F55\uFF0C\u4F7F\u7528AAAA\u8BB0\u5F55\uFF0C\u5171${ipv6List.length}\u4E2A\u7ED3\u679C`);
-      \u6240\u6709\u53CD\u4EE3\u6570\u7EC4.push(...ipv6List.map((ip) => [ip, \u7AEF\u53E3]));
-    } else {
-      log(`[\u53CD\u4EE3\u89E3\u6790] ${\u5730\u5740} \u672A\u83B7\u53D6\u5230TXT\u3001A\u548CAAAA\u8BB0\u5F55\uFF0C\u4FDD\u7559\u539F\u57DF\u540D`);
-      \u6240\u6709\u53CD\u4EE3\u6570\u7EC4.push([\u5730\u5740, \u7AEF\u53E3]);
-    }
-  }
-  const \u6392\u5E8F\u540E\u6570\u7EC4 = \u6240\u6709\u53CD\u4EE3\u6570\u7EC4.sort((a, b) => a[0].localeCompare(b[0]));
-  const \u76EE\u6807\u6839\u57DF\u540D = \u76EE\u6807\u57DF\u540D.includes(".") ? \u76EE\u6807\u57DF\u540D.split(".").slice(-2).join(".") : \u76EE\u6807\u57DF\u540D;
-  let \u968F\u673A\u79CD\u5B50 = [...\u76EE\u6807\u6839\u57DF\u540D + UUID].reduce((a, c) => a + c.charCodeAt(0), 0);
-  log(`[\u53CD\u4EE3\u89E3\u6790] \u968F\u673A\u79CD\u5B50: ${\u968F\u673A\u79CD\u5B50}
-\u76EE\u6807\u7AD9\u70B9: ${\u76EE\u6807\u6839\u57DF\u540D}`);
-  const \u6D17\u724C\u540E = [...\u6392\u5E8F\u540E\u6570\u7EC4].sort(() => (\u968F\u673A\u79CD\u5B50 = \u968F\u673A\u79CD\u5B50 * 1103515245 + 12345 & 2147483647) / 2147483647 - 0.5);
-  const \u89E3\u6790\u7ED3\u679C = \u6D17\u724C\u540E.slice(0, 8);
-  log(`[\u53CD\u4EE3\u89E3\u6790] \u89E3\u6790\u5B8C\u6210 \u603B\u6570: ${\u89E3\u6790\u7ED3\u679C.length}\u4E2A
-${\u89E3\u6790\u7ED3\u679C.map(([ip, port], index) => `${index + 1}. ${ip}:${port}`).join("\n")}`);
-  return \u89E3\u6790\u7ED3\u679C;
-}
-async function nginx() {
-  return `
-	<!DOCTYPE html>
-	<html>
-	<head>
-	<title>Welcome to nginx!</title>
-	<style>
-		body {
-			width: 35em;
-			margin: 0 auto;
-			font-family: Tahoma, Verdana, Arial, sans-serif;
-		}
-	</style>
-	</head>
-	<body>
-	<h1>Welcome to nginx!</h1>
-	<p>If you see this page, the nginx web server is successfully installed and
-	working. Further configuration is required.</p>
-
-	<p>For online documentation and support please refer to
-	<a href="http://nginx.org/">nginx.org</a>.<br/>
-	Commercial support is available at
-	<a href="http://nginx.com/">nginx.com</a>.</p>
-
-	<p><em>Thank you for using nginx.</em></p>
-	</body>
-	</html>
-	`;
-}
-async function html1101(host, \u8BBF\u95EEIP) {
-  const now = /* @__PURE__ */ new Date();
-  const \u683C\u5F0F\u5316\u65F6\u95F4\u6233 = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0") + "-" + String(now.getDate()).padStart(2, "0") + " " + String(now.getHours()).padStart(2, "0") + ":" + String(now.getMinutes()).padStart(2, "0") + ":" + String(now.getSeconds()).padStart(2, "0");
-  const \u968F\u673A\u5B57\u7B26\u4E32 = Array.from(crypto.getRandomValues(new Uint8Array(8))).map((b) => b.toString(16).padStart(2, "0")).join("");
-  return `<!DOCTYPE html>
-<!--[if lt IE 7]> <html class="no-js ie6 oldie" lang="en-US"> <![endif]-->
-<!--[if IE 7]>    <html class="no-js ie7 oldie" lang="en-US"> <![endif]-->
-<!--[if IE 8]>    <html class="no-js ie8 oldie" lang="en-US"> <![endif]-->
-<!--[if gt IE 8]><!--> <html class="no-js" lang="en-US"> <!--<![endif]-->
-<head>
-<title>Worker threw exception | ${host} | Cloudflare</title>
-<meta charset="UTF-8" />
-<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
-<meta http-equiv="X-UA-Compatible" content="IE=Edge" />
-<meta name="robots" content="noindex, nofollow" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<link rel="stylesheet" id="cf_styles-css" href="/cdn-cgi/styles/cf.errors.css" />
-<!--[if lt IE 9]><link rel="stylesheet" id='cf_styles-ie-css' href="/cdn-cgi/styles/cf.errors.ie.css" /><![endif]-->
-<style>body{margin:0;padding:0}</style>
-
-
-<!--[if gte IE 10]><!-->
-<script>
-  if (!navigator.cookieEnabled) {
-    window.addEventListener('DOMContentLoaded', function () {
-      var cookieEl = document.getElementById('cookie-alert');
-      cookieEl.style.display = 'block';
-    })
-  }
-</script>
-<!--<![endif]-->
-
-</head>
-<body>
-    <div id="cf-wrapper">
-        <div class="cf-alert cf-alert-error cf-cookie-error" id="cookie-alert" data-translate="enable_cookies">Please enable cookies.</div>
-        <div id="cf-error-details" class="cf-error-details-wrapper">
-            <div class="cf-wrapper cf-header cf-error-overview">
-                <h1>
-                    <span class="cf-error-type" data-translate="error">Error</span>
-                    <span class="cf-error-code">1101</span>
-                    <small class="heading-ray-id">Ray ID: ${\u968F\u673A\u5B57\u7B26\u4E32} &bull; ${\u683C\u5F0F\u5316\u65F6\u95F4\u6233} UTC</small>
-                </h1>
-                <h2 class="cf-subheadline" data-translate="error_desc">Worker threw exception</h2>
-            </div><!-- /.header -->
-
-            <section></section><!-- spacer -->
-
-            <div class="cf-section cf-wrapper">
-                <div class="cf-columns two">
-                    <div class="cf-column">
-                        <h2 data-translate="what_happened">What happened?</h2>
-                            <p>You've requested a page on a website (${host}) that is on the <a href="https://www.cloudflare.com/5xx-error-landing?utm_source=error_100x" target="_blank">Cloudflare</a> network. An unknown error occurred while rendering the page.</p>
-                    </div>
-
-                    <div class="cf-column">
-                        <h2 data-translate="what_can_i_do">What can I do?</h2>
-                            <p><strong>If you are the owner of this website:</strong><br />refer to <a href="https://developers.cloudflare.com/workers/observability/errors/" target="_blank">Workers - Errors and Exceptions</a> and check Workers Logs for ${host}.</p>
-                    </div>
-
-                </div>
-            </div><!-- /.section -->
-
-            <div class="cf-error-footer cf-wrapper w-240 lg:w-full py-10 sm:py-4 sm:px-8 mx-auto text-center sm:text-left border-solid border-0 border-t border-gray-300">
-    <p class="text-13">
-      <span class="cf-footer-item sm:block sm:mb-1">Cloudflare Ray ID: <strong class="font-semibold"> ${\u968F\u673A\u5B57\u7B26\u4E32}</strong></span>
-      <span class="cf-footer-separator sm:hidden">&bull;</span>
-      <span id="cf-footer-item-ip" class="cf-footer-item hidden sm:block sm:mb-1">
-        Your IP:
-        <button type="button" id="cf-footer-ip-reveal" class="cf-footer-ip-reveal-btn">Click to reveal</button>
-        <span class="hidden" id="cf-footer-ip">${\u8BBF\u95EEIP}</span>
-        <span class="cf-footer-separator sm:hidden">&bull;</span>
-      </span>
-      <span class="cf-footer-item sm:block sm:mb-1"><span>Performance &amp; security by</span> <a rel="noopener noreferrer" href="https://www.cloudflare.com/5xx-error-landing" id="brand_link" target="_blank">Cloudflare</a></span>
-
-    </p>
-    <script>(function(){function d(){var b=a.getElementById("cf-footer-item-ip"),c=a.getElementById("cf-footer-ip-reveal");b&&"classList"in b&&(b.classList.remove("hidden"),c.addEventListener("click",function(){c.classList.add("hidden");a.getElementById("cf-footer-ip").classList.remove("hidden")}))}var a=document;document.addEventListener&&a.addEventListener("DOMContentLoaded",d)})();</script>
-  </div><!-- /.error-footer -->
-
-        </div><!-- /#cf-error-details -->
-    </div><!-- /#cf-wrapper -->
-
-     <script>
-    window._cf_translation = {};
-
-
-  </script>
-</body>
-</html>`;
-}
-
-// src/subscription.js
-function base64SecretEncode(plaintext, secret) {
+async function httpConnect(targetHost, targetPort, initialData, HTTPS\u4EE3\u7406 = false, TCP\u8FDE\u63A5, parsedSocks5) {
+  const { username, password, hostname, port } = parsedSocks5 || {};
+  const socket = HTTPS\u4EE3\u7406 ? TCP\u8FDE\u63A5({ hostname, port }, { secureTransport: "on", allowHalfOpen: false }) : TCP\u8FDE\u63A5({ hostname, port });
+  const writer = socket.writable.getWriter(), reader = socket.readable.getReader();
   const encoder = new TextEncoder();
-  const data = encoder.encode(plaintext);
-  const key = encoder.encode(secret);
-  const mixed = new Uint8Array(data.length);
-  for (let i = 0; i < data.length; i++) {
-    mixed[i] = data[i] ^ key[i % key.length];
-  }
-  let binary = "";
-  for (let i = 0; i < mixed.length; i++) {
-    binary += String.fromCharCode(mixed[i]);
-  }
-  return btoa(binary);
-}
-function base64SecretDecode(encoded, secret) {
-  const binary = atob(encoded);
-  const mixed = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    mixed[i] = binary.charCodeAt(i);
-  }
-  const encoder = new TextEncoder();
-  const key = encoder.encode(secret);
-  const data = new Uint8Array(mixed.length);
-  for (let i = 0; i < mixed.length; i++) {
-    data[i] = mixed[i] ^ key[i % key.length];
-  }
   const decoder = new TextDecoder();
-  return decoder.decode(data);
-}
-function \u83B7\u53D6\u4F20\u8F93\u534F\u8BAE\u914D\u7F6E(\u914D\u7F6E = {}) {
-  const \u662FgRPC = \u914D\u7F6E.\u4F20\u8F93\u534F\u8BAE === "grpc";
-  const { \u5934: \u672C\u673APadding\u5934, \u952E: \u672C\u673APadding\u952E } = \u83B7\u53D6\u53C9HTTPPadding\u6807\u8BC6(\u914D\u7F6E.UUID);
-  const \u53C9\u6DF7\u6DC6JSON = {
-    "xPaddingObfsMode": true,
-    "xPaddingMethod": "tokenish",
-    "xPaddingPlacement": "queryInHeader",
-    "xPaddingHeader": \u672C\u673APadding\u5934,
-    "xPaddingKey": \u672C\u673APadding\u952E
-  };
-  return {
-    type: \u662FgRPC ? \u914D\u7F6E.gRPC\u6A21\u5F0F === "multi" ? "grpc&mode=multi" : "grpc&mode=gun" : \u914D\u7F6E.\u4F20\u8F93\u534F\u8BAE === "xhttp" ? `xhttp&mode=stream-one&extra=${encodeURIComponent(JSON.stringify(\u53C9\u6DF7\u6DC6JSON))}` : "ws",
-    \u8DEF\u5F84\u5B57\u6BB5\u540D: \u662FgRPC ? "serviceName" : "path",
-    \u57DF\u540D\u5B57\u6BB5\u540D: \u662FgRPC ? "authority" : "host"
-  };
-}
-function \u83B7\u53D6\u4F20\u8F93\u8DEF\u5F84\u53C2\u6570\u503C(\u914D\u7F6E = {}, \u8282\u70B9\u8DEF\u5F84 = "/", \u4F5C\u4E3A\u4F18\u9009\u8BA2\u9605\u751F\u6210\u5668 = false) {
-  const \u8DEF\u5F84\u503C = \u4F5C\u4E3A\u4F18\u9009\u8BA2\u9605\u751F\u6210\u5668 ? "/" : \u914D\u7F6E.\u968F\u673A\u8DEF\u5F84 ? \u968F\u673A\u8DEF\u5F84(\u8282\u70B9\u8DEF\u5F84) : \u8282\u70B9\u8DEF\u5F84;
-  if (\u914D\u7F6E.\u4F20\u8F93\u534F\u8BAE !== "grpc") return \u8DEF\u5F84\u503C;
-  return \u8DEF\u5F84\u503C.split("?")[0] || "/";
-}
-function Clash\u8BA2\u9605\u914D\u7F6E\u6587\u4EF6\u70ED\u8865\u4E01(Clash_\u539F\u59CB\u8BA2\u9605\u5185\u5BB9, config_JSON2 = {}) {
-  const uuid = config_JSON2?.UUID || null;
-  const ECH\u542F\u7528 = Boolean(config_JSON2?.ECH);
-  const HOSTS = Array.isArray(config_JSON2?.HOSTS) ? [...config_JSON2.HOSTS] : [];
-  const ECH_SNI = config_JSON2?.ECHConfig?.SNI || null;
-  const ECH_DNS = config_JSON2?.ECHConfig?.DNS;
-  const \u9700\u8981\u5904\u7406ECH = Boolean(uuid && ECH\u542F\u7528);
-  const gRPCUserAgent = typeof config_JSON2?.gRPCUserAgent === "string" && config_JSON2.gRPCUserAgent.trim() ? config_JSON2.gRPCUserAgent.trim() : null;
-  const \u9700\u8981\u5904\u7406gRPC = config_JSON2?.\u4F20\u8F93\u534F\u8BAE === "grpc" && Boolean(gRPCUserAgent);
-  const gRPCUserAgentYAML = gRPCUserAgent ? JSON.stringify(gRPCUserAgent) : null;
-  let clash_yaml = Clash_\u539F\u59CB\u8BA2\u9605\u5185\u5BB9.replace(/mode:\s*Rule\b/g, "mode: rule");
-  const baseDnsBlock = `dns:
-  enable: true
-  default-nameserver:
-    - 223.5.5.5
-    - 119.29.29.29
-    - 114.114.114.114
-  use-hosts: true
-  nameserver:
-    - https://sm2.doh.pub/dns-query
-    - https://dns.alidns.com/dns-query
-  fallback:
-    - 8.8.4.4
-    - 208.67.220.220
-  fallback-filter:
-    geoip: true
-    geoip-code: CN
-    ipcidr:
-      - 240.0.0.0/4
-      - 127.0.0.1/32
-      - 0.0.0.0/32
-    domain:
-      - '+.google.com'
-      - '+.facebook.com'
-      - '+.youtube.com'
+  try {
+    if (HTTPS\u4EE3\u7406) await socket.opened;
+    const auth = username && password ? `Proxy-Authorization: Basic ${btoa(`${username}:${password}`)}\r
+` : "";
+    const request = `CONNECT ${targetHost}:${targetPort} HTTP/1.1\r
+Host: ${targetHost}:${targetPort}\r
+${auth}User-Agent: Mozilla/5.0\r
+Connection: keep-alive\r
+\r
 `;
-  const \u6DFB\u52A0InlineGrpcUserAgent = (text) => text.replace(/grpc-opts:\s*\{([\s\S]*?)\}/i, (all, inner) => {
-    if (/grpc-user-agent\s*:/i.test(inner)) return all;
-    let content = inner.trim();
-    if (content.endsWith(",")) content = content.slice(0, -1).trim();
-    const patchedContent = content ? `${content}, grpc-user-agent: ${gRPCUserAgentYAML}` : `grpc-user-agent: ${gRPCUserAgentYAML}`;
-    return `grpc-opts: {${patchedContent}}`;
-  });
-  const \u5339\u914D\u5230gRPC\u7F51\u7EDC = (text) => /(?:^|[,{])\s*network:\s*(?:"grpc"|'grpc'|grpc)(?=\s*(?:[,}\n#]|$))/mi.test(text);
-  const \u83B7\u53D6\u4EE3\u7406\u7C7B\u578B = (nodeText) => nodeText.match(/type:\s*(\w+)/)?.[1] || "vless";
-  const \u83B7\u53D6\u51ED\u636E\u503C = (nodeText, isFlowStyle) => {
-    const credentialField = \u83B7\u53D6\u4EE3\u7406\u7C7B\u578B(nodeText) === "trojan" ? "password" : "uuid";
-    const pattern = new RegExp(`${credentialField}:\\s*${isFlowStyle ? "([^,}\\n]+)" : "([^\\n]+)"}`);
-    return nodeText.match(pattern)?.[1]?.trim() || null;
-  };
-  const \u63D2\u5165NameserverPolicy = (yaml, hostsEntries) => {
-    if (/^\s{2}nameserver-policy:\s*(?:\n|$)/m.test(yaml)) {
-      return yaml.replace(/^(\s{2}nameserver-policy:\s*\n)/m, `$1${hostsEntries}
-`);
+    await writer.write(encoder.encode(request));
+    writer.releaseLock();
+    let responseBuffer = new Uint8Array(0), headerEndIndex = -1, bytesRead = 0;
+    while (headerEndIndex === -1 && bytesRead < 8192) {
+      const { done, value } = await reader.read();
+      if (done || !value) throw new Error(`${HTTPS\u4EE3\u7406 ? "HTTPS" : "HTTP"} \u4EE3\u7406\u5728\u8FD4\u56DE CONNECT \u54CD\u5E94\u524D\u5173\u95ED\u8FDE\u63A5`);
+      responseBuffer = new Uint8Array([...responseBuffer, ...value]);
+      bytesRead = responseBuffer.length;
+      const crlfcrlf = responseBuffer.findIndex((_, i) => i < responseBuffer.length - 3 && responseBuffer[i] === 13 && responseBuffer[i + 1] === 10 && responseBuffer[i + 2] === 13 && responseBuffer[i + 3] === 10);
+      if (crlfcrlf !== -1) headerEndIndex = crlfcrlf + 4;
     }
-    const lines2 = yaml.split("\n");
-    let dnsBlockEndIndex = -1;
-    let inDnsBlock = false;
-    for (let i2 = 0; i2 < lines2.length; i2++) {
-      const line = lines2[i2];
-      if (/^dns:\s*$/.test(line)) {
-        inDnsBlock = true;
-        continue;
-      }
-      if (inDnsBlock && /^[a-zA-Z]/.test(line)) {
-        dnsBlockEndIndex = i2;
-        break;
-      }
+    if (headerEndIndex === -1) throw new Error("\u4EE3\u7406 CONNECT \u54CD\u5E94\u5934\u8FC7\u957F\u6216\u65E0\u6548");
+    const statusMatch = decoder.decode(responseBuffer.slice(0, headerEndIndex)).split("\r\n")[0].match(/HTTP\/\d\.\d\s+(\d+)/);
+    const statusCode = statusMatch ? parseInt(statusMatch[1], 10) : NaN;
+    if (!Number.isFinite(statusCode) || statusCode < 200 || statusCode >= 300) throw new Error(`Connection failed: HTTP ${statusCode}`);
+    reader.releaseLock();
+    if (\u6709\u6548\u6570\u636E\u957F\u5EA62(initialData) > 0) {
+      const \u8FDC\u7AEF\u5199\u5165\u5668 = socket.writable.getWriter();
+      await \u8FDC\u7AEF\u5199\u5165\u5668.write(initialData);
+      \u8FDC\u7AEF\u5199\u5165\u5668.releaseLock();
     }
-    const nameserverPolicyBlock = `  nameserver-policy:
-${hostsEntries}`;
-    if (dnsBlockEndIndex !== -1) lines2.splice(dnsBlockEndIndex, 0, nameserverPolicyBlock);
-    else lines2.push(nameserverPolicyBlock);
-    return lines2.join("\n");
-  };
-  const \u6DFB\u52A0Flow\u683C\u5F0FgRPCUserAgent = (nodeText) => {
-    if (!\u5339\u914D\u5230gRPC\u7F51\u7EDC(nodeText) || /grpc-user-agent\s*:/i.test(nodeText)) return nodeText;
-    if (/grpc-opts:\s*\{/i.test(nodeText)) return \u6DFB\u52A0InlineGrpcUserAgent(nodeText);
-    return nodeText.replace(/\}(\s*)$/, `, grpc-opts: {grpc-user-agent: ${gRPCUserAgentYAML}}}$1`);
-  };
-  const \u6DFB\u52A0Block\u683C\u5F0FgRPCUserAgent = (nodeLines, topLevelIndent) => {
-    const \u9876\u7EA7\u7F29\u8FDB = " ".repeat(topLevelIndent);
-    let grpcOptsIndex = -1;
-    for (let idx = 0; idx < nodeLines.length; idx++) {
-      const line = nodeLines[idx];
-      if (!line.trim()) continue;
-      const indent = line.search(/\S/);
-      if (indent !== topLevelIndent) continue;
-      if (/^\s*grpc-opts:\s*(?:#.*)?$/.test(line) || /^\s*grpc-opts:\s*\{.*\}\s*(?:#.*)?$/.test(line)) {
-        grpcOptsIndex = idx;
-        break;
-      }
-    }
-    if (grpcOptsIndex === -1) {
-      let insertIndex = -1;
-      for (let j = nodeLines.length - 1; j >= 0; j--) {
-        if (nodeLines[j].trim()) {
-          insertIndex = j;
-          break;
-        }
-      }
-      if (insertIndex >= 0) nodeLines.splice(insertIndex + 1, 0, `${\u9876\u7EA7\u7F29\u8FDB}grpc-opts:`, `${\u9876\u7EA7\u7F29\u8FDB}  grpc-user-agent: ${gRPCUserAgentYAML}`);
-      return nodeLines;
-    }
-    const grpcLine = nodeLines[grpcOptsIndex];
-    if (/^\s*grpc-opts:\s*\{.*\}\s*(?:#.*)?$/.test(grpcLine)) {
-      if (!/grpc-user-agent\s*:/i.test(grpcLine)) nodeLines[grpcOptsIndex] = \u6DFB\u52A0InlineGrpcUserAgent(grpcLine);
-      return nodeLines;
-    }
-    let blockEndIndex = nodeLines.length;
-    let \u5B50\u7EA7\u7F29\u8FDB = topLevelIndent + 2;
-    let \u5DF2\u6709gRPCUserAgent = false;
-    for (let idx = grpcOptsIndex + 1; idx < nodeLines.length; idx++) {
-      const line = nodeLines[idx];
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      const indent = line.search(/\S/);
-      if (indent <= topLevelIndent) {
-        blockEndIndex = idx;
-        break;
-      }
-      if (indent > topLevelIndent && \u5B50\u7EA7\u7F29\u8FDB === topLevelIndent + 2) \u5B50\u7EA7\u7F29\u8FDB = indent;
-      if (/^grpc-user-agent\s*:/.test(trimmed)) {
-        \u5DF2\u6709gRPCUserAgent = true;
-        break;
-      }
-    }
-    if (!\u5DF2\u6709gRPCUserAgent) nodeLines.splice(blockEndIndex, 0, `${" ".repeat(\u5B50\u7EA7\u7F29\u8FDB)}grpc-user-agent: ${gRPCUserAgentYAML}`);
-    return nodeLines;
-  };
-  const \u6DFB\u52A0Block\u683C\u5F0FECHOpts = (nodeLines, topLevelIndent) => {
-    let insertIndex = -1;
-    for (let j = nodeLines.length - 1; j >= 0; j--) {
-      if (nodeLines[j].trim()) {
-        insertIndex = j;
-        break;
-      }
-    }
-    if (insertIndex < 0) return nodeLines;
-    const indent = " ".repeat(topLevelIndent);
-    const echOptsLines = [`${indent}ech-opts:`, `${indent}  enable: true`];
-    if (ECH_SNI) echOptsLines.push(`${indent}  query-server-name: ${ECH_SNI}`);
-    nodeLines.splice(insertIndex + 1, 0, ...echOptsLines);
-    return nodeLines;
-  };
-  if (!/^dns:\s*(?:\n|$)/m.test(clash_yaml)) clash_yaml = baseDnsBlock + clash_yaml;
-  if (ECH_SNI && !HOSTS.includes(ECH_SNI)) HOSTS.push(ECH_SNI);
-  if (ECH\u542F\u7528 && HOSTS.length > 0) {
-    const hostsEntries = HOSTS.map((host) => `    "${host}": ${ECH_DNS ? ECH_DNS : ""}`).join("\n");
-    clash_yaml = \u63D2\u5165NameserverPolicy(clash_yaml, hostsEntries);
-  }
-  if (!\u9700\u8981\u5904\u7406ECH && !\u9700\u8981\u5904\u7406gRPC) return clash_yaml;
-  const lines = clash_yaml.split("\n");
-  const processedLines = [];
-  let i = 0;
-  while (i < lines.length) {
-    const line = lines[i];
-    const trimmedLine = line.trim();
-    if (trimmedLine.startsWith("- {")) {
-      let fullNode = line;
-      let braceCount = (line.match(/\{/g) || []).length - (line.match(/\}/g) || []).length;
-      while (braceCount > 0 && i + 1 < lines.length) {
-        i++;
-        fullNode += "\n" + lines[i];
-        braceCount += (lines[i].match(/\{/g) || []).length - (lines[i].match(/\}/g) || []).length;
-      }
-      if (\u9700\u8981\u5904\u7406gRPC) fullNode = \u6DFB\u52A0Flow\u683C\u5F0FgRPCUserAgent(fullNode);
-      if (\u9700\u8981\u5904\u7406ECH && \u83B7\u53D6\u51ED\u636E\u503C(fullNode, true) === uuid.trim()) {
-        fullNode = fullNode.replace(/\}(\s*)$/, `, ech-opts: {enable: true${ECH_SNI ? `, query-server-name: ${ECH_SNI}` : ""}}}$1`);
-      }
-      processedLines.push(fullNode);
-      i++;
-    } else if (trimmedLine.startsWith("- name:")) {
-      let nodeLines = [line];
-      let baseIndent = line.search(/\S/);
-      let topLevelIndent = baseIndent + 2;
-      i++;
-      while (i < lines.length) {
-        const nextLine = lines[i];
-        const nextTrimmed = nextLine.trim();
-        if (!nextTrimmed) {
-          nodeLines.push(nextLine);
-          i++;
-          break;
-        }
-        const nextIndent = nextLine.search(/\S/);
-        if (nextIndent <= baseIndent && nextTrimmed.startsWith("- ")) {
-          break;
-        }
-        if (nextIndent < baseIndent && nextTrimmed) {
-          break;
-        }
-        nodeLines.push(nextLine);
-        i++;
-      }
-      let nodeText = nodeLines.join("\n");
-      if (\u9700\u8981\u5904\u7406gRPC && \u5339\u914D\u5230gRPC\u7F51\u7EDC(nodeText)) {
-        nodeLines = \u6DFB\u52A0Block\u683C\u5F0FgRPCUserAgent(nodeLines, topLevelIndent);
-        nodeText = nodeLines.join("\n");
-      }
-      if (\u9700\u8981\u5904\u7406ECH && \u83B7\u53D6\u51ED\u636E\u503C(nodeText, false) === uuid.trim()) nodeLines = \u6DFB\u52A0Block\u683C\u5F0FECHOpts(nodeLines, topLevelIndent);
-      processedLines.push(...nodeLines);
-    } else {
-      processedLines.push(line);
-      i++;
-    }
-  }
-  return processedLines.join("\n");
-}
-async function Singbox\u8BA2\u9605\u914D\u7F6E\u6587\u4EF6\u70ED\u8865\u4E01(SingBox_\u539F\u59CB\u8BA2\u9605\u5185\u5BB9, config_JSON2 = {}) {
-  const uuid = config_JSON2?.UUID || null;
-  const fingerprint = config_JSON2?.Fingerprint || "chrome";
-  const ECH\u542F\u7528 = Boolean(config_JSON2?.ECH);
-  const ECH_SNI = config_JSON2?.ECHConfig?.SNI || "cloudflare-ech.com";
-  const sb_json_text = SingBox_\u539F\u59CB\u8BA2\u9605\u5185\u5BB9.replace("1.1.1.1", "8.8.8.8").replace("1.0.0.1", "8.8.4.4");
-  try {
-    const config = JSON.parse(sb_json_text);
-    const \u6570\u7EC4\u5316 = (value) => value === void 0 || value === null ? [] : Array.isArray(value) ? value : [value];
-    const \u786E\u4FDDRoute = () => config.route = config.route && typeof config.route === "object" ? config.route : {};
-    const \u83B7\u53D6DNS\u89C4\u5219\u670D\u52A1\u5668 = (rule) => rule && typeof rule === "object" && !Array.isArray(rule) && typeof rule.server === "string" ? rule.server : null;
-    const \u6DFB\u52A0\u89C4\u5219\u96C6 = (type, code) => {
-      if (!code || typeof code !== "string") return null;
-      const route = \u786E\u4FDDRoute(), tag = `${type}-${code}`, ruleSet = Array.isArray(route.rule_set) ? route.rule_set : \u6570\u7EC4\u5316(route.rule_set);
-      if (!ruleSet.some((item) => item?.tag === tag)) {
-        const legacyOptions = type === "geoip" ? route.geoip : route.geosite;
-        ruleSet.push({ tag, type: "remote", format: "binary", url: `https://raw.githubusercontent.com/SagerNet/sing-${type}/rule-set/${tag}.srs`, ...legacyOptions?.download_detour ? { download_detour: legacyOptions.download_detour } : {} });
-        config.experimental = config.experimental && typeof config.experimental === "object" ? config.experimental : {};
-        config.experimental.cache_file = config.experimental.cache_file && typeof config.experimental.cache_file === "object" ? config.experimental.cache_file : {};
-        config.experimental.cache_file.enabled ??= true;
-      }
-      route.rule_set = ruleSet;
-      return tag;
-    };
-    const \u8FC1\u79FB\u89C4\u5219\u96C6\u5B57\u6BB5 = (rule) => {
-      if (!rule || typeof rule !== "object" || Array.isArray(rule)) return rule;
-      if (rule.type === "logical" && Array.isArray(rule.rules)) {
-        rule.rules = rule.rules.map(\u8FC1\u79FB\u89C4\u5219\u96C6\u5B57\u6BB5);
-        return rule;
-      }
-      const tags = [];
-      for (const geoip of \u6570\u7EC4\u5316(rule.geoip)) {
-        if (typeof geoip !== "string") continue;
-        if (geoip.toLowerCase() === "private") rule.ip_is_private = true;
-        else tags.push(\u6DFB\u52A0\u89C4\u5219\u96C6("geoip", geoip));
-      }
-      for (const sourceGeoip of \u6570\u7EC4\u5316(rule.source_geoip)) {
-        if (typeof sourceGeoip !== "string") continue;
-        tags.push(\u6DFB\u52A0\u89C4\u5219\u96C6("geoip", sourceGeoip));
-        rule.rule_set_ip_cidr_match_source = true;
-      }
-      for (const geosite of \u6570\u7EC4\u5316(rule.geosite)) if (typeof geosite === "string") tags.push(\u6DFB\u52A0\u89C4\u5219\u96C6("geosite", geosite));
-      if (tags.length) rule.rule_set = [...new Set([...\u6570\u7EC4\u5316(rule.rule_set), ...tags].filter(Boolean))];
-      delete rule.geoip;
-      delete rule.source_geoip;
-      delete rule.geosite;
-      return rule;
-    };
-    const \u8FC1\u79FBDNS\u89C4\u5219 = (rule, rcodeServerMap) => {
-      rule = \u8FC1\u79FB\u89C4\u5219\u96C6\u5B57\u6BB5(rule);
-      if (!rule || typeof rule !== "object" || Array.isArray(rule)) return rule;
-      if (rule.type === "logical" && Array.isArray(rule.rules)) {
-        rule.rules = rule.rules.map((childRule) => \u8FC1\u79FBDNS\u89C4\u5219(childRule, rcodeServerMap));
-        return rule;
-      }
-      const serverTag = \u83B7\u53D6DNS\u89C4\u5219\u670D\u52A1\u5668(rule);
-      if (serverTag && rcodeServerMap.has(serverTag)) {
-        for (const key of ["server", "strategy", "disable_cache", "rewrite_ttl", "client_subnet", "timeout"]) delete rule[key];
-        rule.action = "predefined";
-        rule.rcode = rcodeServerMap.get(serverTag);
-      } else if (serverTag && !rule.action) rule.action = "route";
-      return rule;
-    };
-    if (Array.isArray(config.inbounds)) {
-      for (const inbound of config.inbounds) {
-        if (!inbound || typeof inbound !== "object" || inbound.type !== "tun") continue;
-        for (const migration of [
-          { targetKey: "address", sourceKeys: ["inet4_address", "inet6_address"] },
-          { targetKey: "route_address", sourceKeys: ["inet4_route_address", "inet6_route_address"] },
-          { targetKey: "route_exclude_address", sourceKeys: ["inet4_route_exclude_address", "inet6_route_exclude_address"] }
-        ]) {
-          const values = \u6570\u7EC4\u5316(inbound[migration.targetKey]);
-          for (const sourceKey of migration.sourceKeys) values.push(...\u6570\u7EC4\u5316(inbound[sourceKey]));
-          if (values.length) inbound[migration.targetKey] = [...new Set(values)];
-          for (const sourceKey of migration.sourceKeys) delete inbound[sourceKey];
-        }
-        if (inbound.tag) {
-          const addedRules = [];
-          if (inbound.domain_strategy) addedRules.push({ inbound: inbound.tag, action: "resolve", strategy: inbound.domain_strategy });
-          if (inbound.sniff) {
-            const sniffRule = { inbound: inbound.tag, action: "sniff" };
-            if (inbound.sniff_timeout) sniffRule.timeout = inbound.sniff_timeout;
-            addedRules.push(sniffRule);
-          }
-          if (addedRules.length) {
-            const route = \u786E\u4FDDRoute();
-            route.rules = [...addedRules, ...\u6570\u7EC4\u5316(route.rules)];
-          }
-        }
-        delete inbound.sniff;
-        delete inbound.sniff_timeout;
-        delete inbound.domain_strategy;
-      }
-    }
-    if (config?.route && typeof config.route === "object" && Array.isArray(config.route.rules)) {
-      const \u4FEE\u8865\u8DEF\u7531\u89C4\u5219 = (rule) => {
-        rule = \u8FC1\u79FB\u89C4\u5219\u96C6\u5B57\u6BB5(rule);
-        if (rule?.type === "logical" && Array.isArray(rule.rules)) rule.rules = rule.rules.map(\u4FEE\u8865\u8DEF\u7531\u89C4\u5219);
-        else if (rule && typeof rule === "object" && !Array.isArray(rule) && rule.outbound && !rule.action) rule.action = "route";
-        return rule;
-      };
-      config.route.rules = config.route.rules.map(\u4FEE\u8865\u8DEF\u7531\u89C4\u5219);
-    }
-    const dns = config?.dns;
-    if (dns && typeof dns === "object") {
-      const legacyFakeIP = dns.fakeip && typeof dns.fakeip === "object" ? dns.fakeip : null;
-      const rcodeServerMap = /* @__PURE__ */ new Map();
-      const DNS\u5730\u5740\u534F\u8BAE\u7C7B\u578B = { "tcp:": "tcp", "udp:": "udp", "tls:": "tls", "quic:": "quic", "https:": "https", "h3:": "h3" };
-      const RCode\u6620\u5C04 = { success: "NOERROR", format_error: "FORMERR", server_failure: "SERVFAIL", name_error: "NXDOMAIN", not_implemented: "NOTIMP", refused: "REFUSED" };
-      let hasFakeIPServer = false;
-      if (Array.isArray(dns.servers)) {
-        const migratedServers = [];
-        for (const originalServer of dns.servers) {
-          if (!originalServer || typeof originalServer !== "object" || Array.isArray(originalServer)) {
-            migratedServers.push(originalServer);
-            continue;
-          }
-          const server = { ...originalServer };
-          let parsedAddress = null, parsedRCode = "", rawAddress = typeof server.address === "string" ? server.address.trim() : "";
-          if (rawAddress) {
-            const lowerAddress = rawAddress.toLowerCase();
-            if (lowerAddress === "fakeip") parsedAddress = { type: "fakeip" };
-            else if (lowerAddress === "local") parsedAddress = { type: "local" };
-            else if (lowerAddress.startsWith("rcode://")) {
-              parsedAddress = { type: "rcode" };
-              parsedRCode = rawAddress.slice("rcode://".length).toLowerCase();
-            } else if (lowerAddress.startsWith("dhcp://")) {
-              const dhcpInterface = rawAddress.slice("dhcp://".length);
-              parsedAddress = dhcpInterface && dhcpInterface.toLowerCase() !== "auto" ? { type: "dhcp", interface: dhcpInterface } : { type: "dhcp" };
-            } else {
-              try {
-                const addressURL = new URL(rawAddress);
-                const type = DNS\u5730\u5740\u534F\u8BAE\u7C7B\u578B[addressURL.protocol.toLowerCase()];
-                if (type) {
-                  const parsedServer = addressURL.hostname?.startsWith("[") && addressURL.hostname.endsWith("]") ? addressURL.hostname.slice(1, -1) : addressURL.hostname;
-                  parsedAddress = {
-                    type,
-                    server: parsedServer || addressURL.host || rawAddress,
-                    ...addressURL.port ? { server_port: Number(addressURL.port) } : {},
-                    ...(type === "https" || type === "h3") && addressURL.pathname && addressURL.pathname !== "/dns-query" ? { path: addressURL.pathname } : {}
-                  };
-                }
-              } catch (_) {
-              }
-              if (!parsedAddress) parsedAddress = { type: "udp", server: rawAddress };
-            }
-          }
-          if (parsedAddress?.type === "rcode") {
-            const rcode = RCode\u6620\u5C04[parsedRCode] || "NOERROR";
-            if (typeof server.tag === "string" && server.tag) {
-              rcodeServerMap.set(server.tag, rcode);
-              rcodeServerMap.set(server.tag.startsWith("dns_") ? server.tag.slice(4) : `dns_${server.tag}`, rcode);
-            }
-            continue;
-          }
-          if (parsedAddress) {
-            delete server.address;
-            Object.assign(server, parsedAddress);
-          }
-          if (server.address_resolver !== void 0 && server.domain_resolver === void 0) server.domain_resolver = server.address_resolver;
-          if (server.address_strategy !== void 0 && server.domain_strategy === void 0) server.domain_strategy = server.address_strategy;
-          delete server.address_resolver;
-          delete server.address_strategy;
-          if (server.detour === "DIRECT") delete server.detour;
-          if (server.type === "fakeip") {
-            hasFakeIPServer = true;
-            if (legacyFakeIP) {
-              for (const key of ["inet4_range", "inet6_range"]) {
-                if (legacyFakeIP[key] !== void 0 && server[key] === void 0) server[key] = legacyFakeIP[key];
-              }
-            }
-          }
-          migratedServers.push(server);
-        }
-        dns.servers = migratedServers;
-      }
-      if (legacyFakeIP && !hasFakeIPServer && legacyFakeIP.enabled !== false) {
-        const fakeIPServer = { type: "fakeip", tag: "fakeip" };
-        for (const rule of Array.isArray(dns.rules) ? dns.rules : []) {
-          const serverTag = \u83B7\u53D6DNS\u89C4\u5219\u670D\u52A1\u5668(rule);
-          if (serverTag && serverTag.toLowerCase().includes("fakeip")) {
-            fakeIPServer.tag = serverTag;
-            break;
-          }
-        }
-        for (const key of ["inet4_range", "inet6_range"]) {
-          if (legacyFakeIP[key] !== void 0) fakeIPServer[key] = legacyFakeIP[key];
-        }
-        if (Array.isArray(dns.servers)) dns.servers.push(fakeIPServer);
-        else dns.servers = [fakeIPServer];
-      }
-      if (Array.isArray(dns.rules)) {
-        const migratedRules = [];
-        for (const rule of dns.rules) {
-          const serverTag = \u83B7\u53D6DNS\u89C4\u5219\u670D\u52A1\u5668(rule);
-          const outbound = \u6570\u7EC4\u5316(rule?.outbound);
-          const DNS\u8DEF\u7531\u9009\u9879\u5B57\u6BB5 = /* @__PURE__ */ new Set(["outbound", "server", "action", "strategy", "disable_cache", "rewrite_ttl", "client_subnet", "timeout"]);
-          const isOutboundAnyDNSRule = rule && typeof rule === "object" && !Array.isArray(rule) && rule.type !== "logical" && serverTag && outbound.includes("any") && Object.keys(rule).every((key) => DNS\u8DEF\u7531\u9009\u9879\u5B57\u6BB5.has(key));
-          if (isOutboundAnyDNSRule) {
-            const route = \u786E\u4FDDRoute();
-            if (route.default_domain_resolver === void 0) {
-              const resolver = { server: serverTag };
-              for (const key of ["strategy", "disable_cache", "rewrite_ttl", "client_subnet", "timeout"]) {
-                if (rule[key] !== void 0) resolver[key] = rule[key];
-              }
-              route.default_domain_resolver = Object.keys(resolver).length === 1 ? resolver.server : resolver;
-            }
-            continue;
-          }
-          migratedRules.push(\u8FC1\u79FBDNS\u89C4\u5219(rule, rcodeServerMap));
-        }
-        dns.rules = migratedRules;
-      }
-      delete dns.fakeip;
-      delete dns.independent_cache;
-    }
-    if (config?.route && typeof config.route === "object") {
-      delete config.route.geoip;
-      delete config.route.geosite;
-    }
-    if (config?.ntp?.detour === "DIRECT") delete config.ntp.detour;
-    if (Array.isArray(config.outbounds)) {
-      const outboundTags = new Set(config.outbounds.map((outbound) => outbound?.tag).filter(Boolean));
-      const \u5F15\u7528REJECT = (value) => value === "REJECT" || value && typeof value === "object" && (Array.isArray(value) ? value.some(\u5F15\u7528REJECT) : Object.values(value).some(\u5F15\u7528REJECT));
-      if (!outboundTags.has("REJECT") && \u5F15\u7528REJECT({ outbounds: config.outbounds, route: config.route })) config.outbounds.push({ type: "block", tag: "REJECT" });
-    }
-    if (uuid) {
-      config.outbounds?.forEach((outbound) => {
-        if (outbound.uuid && outbound.uuid === uuid || outbound.password && outbound.password === uuid) {
-          if (!outbound.tls) {
-            outbound.tls = { enabled: true };
-          }
-          if (fingerprint) {
-            outbound.tls.utls = {
-              enabled: true,
-              fingerprint
-            };
-          }
-          if (ECH\u542F\u7528) {
-            outbound.tls.ech = {
-              enabled: true,
-              query_server_name: ECH_SNI
-              // 等待 1.13.0+ 版本上线
-              //config: `-----BEGIN ECH CONFIGS-----\n${ech_config}\n-----END ECH CONFIGS-----`
-            };
-          }
-        }
+    if (bytesRead > headerEndIndex) {
+      const { readable, writable } = new TransformStream();
+      const transformWriter = writable.getWriter();
+      await transformWriter.write(responseBuffer.subarray(headerEndIndex, bytesRead));
+      transformWriter.releaseLock();
+      socket.readable.pipeTo(writable).catch(() => {
       });
+      return { readable, writable: socket.writable, closed: socket.closed, close: () => socket.close() };
     }
-    return JSON.stringify(config, null, 2);
-  } catch (e) {
-    log("Singbox\u70ED\u8865\u4E01\u6267\u884C\u5931\u8D25:", e);
-    return JSON.stringify(JSON.parse(sb_json_text), null, 2);
-  }
-}
-function Surge\u8BA2\u9605\u914D\u7F6E\u6587\u4EF6\u70ED\u8865\u4E01(content, url, config_JSON2) {
-  const \u6BCF\u884C\u5185\u5BB9 = content.includes("\r\n") ? content.split("\r\n") : content.split("\n");
-  const \u5B8C\u6574\u8282\u70B9\u8DEF\u5F84 = config_JSON2.\u968F\u673A\u8DEF\u5F84 ? \u968F\u673A\u8DEF\u5F84(config_JSON2.\u5B8C\u6574\u8282\u70B9\u8DEF\u5F84) : config_JSON2.\u5B8C\u6574\u8282\u70B9\u8DEF\u5F84;
-  let \u8F93\u51FA\u5185\u5BB9 = "";
-  for (let x of \u6BCF\u884C\u5185\u5BB9) {
-    if (x.includes("= trojan,") && !x.includes("ws=true") && !x.includes("ws-path=")) {
-      const host = x.split("sni=")[1].split(",")[0];
-      const \u5907\u6539\u5185\u5BB9 = `sni=${host}, skip-cert-verify=${config_JSON2.\u8DF3\u8FC7\u8BC1\u4E66\u9A8C\u8BC1}`;
-      const \u6B63\u786E\u5185\u5BB9 = `sni=${host}, skip-cert-verify=${config_JSON2.\u8DF3\u8FC7\u8BC1\u4E66\u9A8C\u8BC1}, ws=true, ws-path=${\u5B8C\u6574\u8282\u70B9\u8DEF\u5F84.replace(/,/g, "%2C")}, ws-headers=Host:"${host}"`;
-      \u8F93\u51FA\u5185\u5BB9 += x.replace(new RegExp(\u5907\u6539\u5185\u5BB9, "g"), \u6B63\u786E\u5185\u5BB9).replace("[", "").replace("]", "") + "\n";
-    } else {
-      \u8F93\u51FA\u5185\u5BB9 += x + "\n";
-    }
-  }
-  \u8F93\u51FA\u5185\u5BB9 = `#!MANAGED-CONFIG ${url} interval=${config_JSON2.\u4F18\u9009\u8BA2\u9605\u751F\u6210.SUBUpdateTime * 60 * 60} strict=false` + \u8F93\u51FA\u5185\u5BB9.substring(\u8F93\u51FA\u5185\u5BB9.indexOf("\n"));
-  return \u8F93\u51FA\u5185\u5BB9;
-}
-async function \u8BF7\u6C42\u65E5\u5FD7\u8BB0\u5F55(env, request, \u8BBF\u95EEIP, \u8BF7\u6C42\u7C7B\u578B = "Get_SUB", config_JSON2, \u662F\u5426\u5199\u5165KV\u65E5\u5FD7 = true) {
-  try {
-    const \u5F53\u524D\u65F6\u95F4 = /* @__PURE__ */ new Date();
-    const \u65E5\u5FD7\u5185\u5BB9 = { TYPE: \u8BF7\u6C42\u7C7B\u578B, IP: \u8BBF\u95EEIP, ASN: `AS${request.cf.asn || "0"} ${request.cf.asOrganization || "Unknown"}`, CC: `${request.cf.country || "N/A"} ${request.cf.city || "N/A"}`, URL: request.url, UA: request.headers.get("User-Agent") || "Unknown", TIME: \u5F53\u524D\u65F6\u95F4.getTime() };
-    if (config_JSON2.TG.\u542F\u7528) {
-      try {
-        const TG_TXT = await env.KV.get("tg.json");
-        const TG_JSON = JSON.parse(TG_TXT);
-        if (TG_JSON?.BotToken && TG_JSON?.ChatID) {
-          const \u8BF7\u6C42\u65F6\u95F4 = new Date(\u65E5\u5FD7\u5185\u5BB9.TIME).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" });
-          const \u8BF7\u6C42URL = new URL(\u65E5\u5FD7\u5185\u5BB9.URL);
-          const msg = `<b>#${config_JSON2.\u4F18\u9009\u8BA2\u9605\u751F\u6210.SUBNAME} \u65E5\u5FD7\u901A\u77E5</b>
-
-\u{1F4CC} <b>\u7C7B\u578B\uFF1A</b>#${\u65E5\u5FD7\u5185\u5BB9.TYPE}
-\u{1F310} <b>IP\uFF1A</b><code>${\u65E5\u5FD7\u5185\u5BB9.IP}</code>
-\u{1F4CD} <b>\u4F4D\u7F6E\uFF1A</b>${\u65E5\u5FD7\u5185\u5BB9.CC}
-\u{1F3E2} <b>ASN\uFF1A</b>${\u65E5\u5FD7\u5185\u5BB9.ASN}
-\u{1F517} <b>\u57DF\u540D\uFF1A</b><code>${\u8BF7\u6C42URL.host}</code>
-\u{1F50D} <b>\u8DEF\u5F84\uFF1A</b><code>${\u8BF7\u6C42URL.pathname + \u8BF7\u6C42URL.search}</code>
-\u{1F916} <b>UA\uFF1A</b><code>${\u65E5\u5FD7\u5185\u5BB9.UA}</code>
-\u{1F4C5} <b>\u65F6\u95F4\uFF1A</b>${\u8BF7\u6C42\u65F6\u95F4}
-${config_JSON2.CF.Usage.success ? `\u{1F4CA} <b>\u8BF7\u6C42\u7528\u91CF\uFF1A</b>${config_JSON2.CF.Usage.total}/${config_JSON2.CF.Usage.max} <b>${(config_JSON2.CF.Usage.total / config_JSON2.CF.Usage.max * 100).toFixed(2)}%</b>
-` : ""}`;
-          await fetch(`https://api.telegram.org/bot${TG_JSON.BotToken}/sendMessage?chat_id=${TG_JSON.ChatID}&parse_mode=HTML&text=${encodeURIComponent(msg)}`, {
-            method: "GET",
-            headers: {
-              "Accept": "text/html,application/xhtml+xml,application/xml;",
-              "Accept-Encoding": "gzip, deflate, br",
-              "User-Agent": \u65E5\u5FD7\u5185\u5BB9.UA || "Unknown"
-            }
-          });
-        }
-      } catch (error) {
-        log(`\u8BFB\u53D6tg.json\u51FA\u9519: ${error.message}`);
-      }
-    }
-    \u662F\u5426\u5199\u5165KV\u65E5\u5FD7 = ["1", "true"].includes(env.OFF_LOG) ? false : \u662F\u5426\u5199\u5165KV\u65E5\u5FD7;
-    if (!\u662F\u5426\u5199\u5165KV\u65E5\u5FD7) return;
-    let \u65E5\u5FD7\u6570\u7EC4 = [];
-    const \u73B0\u6709\u65E5\u5FD7 = await env.KV.get("log.json"), KV\u5BB9\u91CF\u9650\u5236 = 4;
-    if (\u73B0\u6709\u65E5\u5FD7) {
-      try {
-        \u65E5\u5FD7\u6570\u7EC4 = JSON.parse(\u73B0\u6709\u65E5\u5FD7);
-        if (!Array.isArray(\u65E5\u5FD7\u6570\u7EC4)) {
-          \u65E5\u5FD7\u6570\u7EC4 = [\u65E5\u5FD7\u5185\u5BB9];
-        } else if (\u8BF7\u6C42\u7C7B\u578B !== "Get_SUB") {
-          const \u4E09\u5341\u5206\u949F\u524D\u65F6\u95F4\u6233 = \u5F53\u524D\u65F6\u95F4.getTime() - 30 * 60 * 1e3;
-          if (\u65E5\u5FD7\u6570\u7EC4.some((log2) => log2.TYPE !== "Get_SUB" && log2.IP === \u8BBF\u95EEIP && log2.URL === request.url && log2.UA === (request.headers.get("User-Agent") || "Unknown") && log2.TIME >= \u4E09\u5341\u5206\u949F\u524D\u65F6\u95F4\u6233)) return;
-          \u65E5\u5FD7\u6570\u7EC4.push(\u65E5\u5FD7\u5185\u5BB9);
-          while (JSON.stringify(\u65E5\u5FD7\u6570\u7EC4, null, 2).length > KV\u5BB9\u91CF\u9650\u5236 * 1024 * 1024 && \u65E5\u5FD7\u6570\u7EC4.length > 0) \u65E5\u5FD7\u6570\u7EC4.shift();
-        } else {
-          \u65E5\u5FD7\u6570\u7EC4.push(\u65E5\u5FD7\u5185\u5BB9);
-          while (JSON.stringify(\u65E5\u5FD7\u6570\u7EC4, null, 2).length > KV\u5BB9\u91CF\u9650\u5236 * 1024 * 1024 && \u65E5\u5FD7\u6570\u7EC4.length > 0) \u65E5\u5FD7\u6570\u7EC4.shift();
-        }
-      } catch (e) {
-        \u65E5\u5FD7\u6570\u7EC4 = [\u65E5\u5FD7\u5185\u5BB9];
-      }
-    } else {
-      \u65E5\u5FD7\u6570\u7EC4 = [\u65E5\u5FD7\u5185\u5BB9];
-    }
-    await env.KV.put("log.json", JSON.stringify(\u65E5\u5FD7\u6570\u7EC4, null, 2));
+    return socket;
   } catch (error) {
-    console.error(`\u65E5\u5FD7\u8BB0\u5F55\u5931\u8D25: ${error.message}`);
+    try {
+      writer.releaseLock();
+    } catch (e) {
+    }
+    try {
+      reader.releaseLock();
+    } catch (e) {
+    }
+    try {
+      socket.close();
+    } catch (e) {
+    }
+    throw error;
   }
 }
+async function httpsConnect(targetHost, targetPort, initialData, TCP\u8FDE\u63A5, parsedSocks5) {
+  const { username, password, hostname, port } = parsedSocks5 || {};
+  const encoder = new TextEncoder();
+  const decoder = new TextDecoder();
+  let tlsSocket = null;
+  const tlsServerName = isIPHostname(hostname) ? "" : stripIPv6Brackets(hostname);
+  const \u6253\u5F00HTTPS\u4EE3\u7406TLS = async (allowChacha = false) => {
+    const proxySocket = TCP\u8FDE\u63A5({ hostname, port });
+    try {
+      await proxySocket.opened;
+      const socket = new TlsClient(proxySocket, { serverName: tlsServerName, insecure: true, allowChacha });
+      await socket.handshake();
+      log(`[HTTPS\u4EE3\u7406] TLS\u7248\u672C: ${socket.isTls13 ? "1.3" : "1.2"} | Cipher: 0x${socket.cipherSuite.toString(16)}${socket.cipherConfig?.chacha ? " (ChaCha20)" : " (AES-GCM)"}`);
+      return socket;
+    } catch (error) {
+      try {
+        proxySocket.close();
+      } catch (e) {
+      }
+      throw error;
+    }
+  };
+  try {
+    try {
+      tlsSocket = await \u6253\u5F00HTTPS\u4EE3\u7406TLS(false);
+    } catch (error) {
+      if (!/cipher|handshake|TLS Alert|ServerHello|Finished|Unsupported|Missing TLS/i.test(error?.message || `${error || ""}`)) throw error;
+      log(`[HTTPS\u4EE3\u7406] AES-GCM TLS \u63E1\u624B\u5931\u8D25\uFF0C\u56DE\u9000 ChaCha20 \u517C\u5BB9\u6A21\u5F0F: ${error?.message || error}`);
+      tlsSocket = await \u6253\u5F00HTTPS\u4EE3\u7406TLS(true);
+    }
+    const auth = username && password ? `Proxy-Authorization: Basic ${btoa(`${username}:${password}`)}\r
+` : "";
+    const request = `CONNECT ${targetHost}:${targetPort} HTTP/1.1\r
+Host: ${targetHost}:${targetPort}\r
+${auth}User-Agent: Mozilla/5.0\r
+Connection: keep-alive\r
+\r
+`;
+    await tlsSocket.write(encoder.encode(request));
+    let responseBuffer = new Uint8Array(0), headerEndIndex = -1, bytesRead = 0;
+    while (headerEndIndex === -1 && bytesRead < 8192) {
+      const value = await tlsSocket.read();
+      if (!value) throw new Error("HTTPS \u4EE3\u7406\u5728\u8FD4\u56DE CONNECT \u54CD\u5E94\u524D\u5173\u95ED\u8FDE\u63A5");
+      responseBuffer = \u62FC\u63A5\u5B57\u8282\u6570\u636E(responseBuffer, value);
+      bytesRead = responseBuffer.length;
+      const crlfcrlf = responseBuffer.findIndex((_, i) => i < responseBuffer.length - 3 && responseBuffer[i] === 13 && responseBuffer[i + 1] === 10 && responseBuffer[i + 2] === 13 && responseBuffer[i + 3] === 10);
+      if (crlfcrlf !== -1) headerEndIndex = crlfcrlf + 4;
+    }
+    if (headerEndIndex === -1) throw new Error("HTTPS \u4EE3\u7406 CONNECT \u54CD\u5E94\u5934\u8FC7\u957F\u6216\u65E0\u6548");
+    const statusMatch = decoder.decode(responseBuffer.slice(0, headerEndIndex)).split("\r\n")[0].match(/HTTP\/\d\.\d\s+(\d+)/);
+    const statusCode = statusMatch ? parseInt(statusMatch[1], 10) : NaN;
+    if (!Number.isFinite(statusCode) || statusCode < 200 || statusCode >= 300) throw new Error(`Connection failed: HTTP ${statusCode}`);
+    if (\u6709\u6548\u6570\u636E\u957F\u5EA62(initialData) > 0) await tlsSocket.write(\u6570\u636E\u8F6CUint8Array(initialData));
+    const bufferedData = bytesRead > headerEndIndex ? responseBuffer.subarray(headerEndIndex, bytesRead) : null;
+    let closedSettled = false, resolveClosed, rejectClosed;
+    const settleClosed = (settle, value) => {
+      if (!closedSettled) {
+        closedSettled = true;
+        settle(value);
+      }
+    };
+    const closed = new Promise((resolve, reject) => {
+      resolveClosed = resolve;
+      rejectClosed = reject;
+    });
+    const close = () => {
+      try {
+        tlsSocket.close();
+      } catch (e) {
+      }
+      settleClosed(resolveClosed);
+    };
+    const readable = new ReadableStream({
+      async start(controller) {
+        try {
+          if (\u6709\u6548\u6570\u636E\u957F\u5EA62(bufferedData) > 0) controller.enqueue(bufferedData);
+          while (true) {
+            const data = await tlsSocket.read();
+            if (!data) break;
+            if (data.byteLength > 0) controller.enqueue(data);
+          }
+          try {
+            controller.close();
+          } catch (e) {
+          }
+          settleClosed(resolveClosed);
+        } catch (error) {
+          try {
+            controller.error(error);
+          } catch (e) {
+          }
+          settleClosed(rejectClosed, error);
+        }
+      },
+      cancel() {
+        close();
+      }
+    });
+    const writable = new WritableStream({
+      async write(chunk) {
+        await tlsSocket.write(\u6570\u636E\u8F6CUint8Array(chunk));
+      },
+      close,
+      abort(error) {
+        close();
+        if (error) settleClosed(rejectClosed, error);
+      }
+    });
+    return { readable, writable, closed, close };
+  } catch (error) {
+    try {
+      tlsSocket?.close();
+    } catch (e) {
+    }
+    throw error;
+  }
+}
+
+// src/net/dns.js
 var DoH\u7F13\u5B58 = {};
 var DoH\u7F13\u5B58\u6700\u5927\u6761\u76EE = 256;
 var DoH\u8BB0\u5F55\u7C7B\u578B\u6620\u5C04 = { A: 1, NS: 2, CNAME: 5, MX: 15, TXT: 16, AAAA: 28, SRV: 33, HTTPS: 65 };
@@ -2206,246 +1356,6 @@ async function DoH\u67E5\u8BE2(\u57DF\u540D, \u8BB0\u5F55\u7C7B\u578B, DoH\u89E3
     log(`[DoH\u67E5\u8BE2] \u67E5\u8BE2\u5931\u8D25 ${\u57DF\u540D} ${\u8BB0\u5F55\u7C7B\u578B} via ${DoH\u89E3\u6790\u670D\u52A1} ${\u8017\u65F6}ms:`, error);
     return [];
   }
-}
-async function \u8BFB\u53D6config_JSON(env, hostname, userID, UA = "Mozilla/5.0", \u91CD\u7F6E\u914D\u7F6E = false) {
-  let \u5C40\u90E8\u914D\u7F6E = null;
-  const _p = \u7279\u5F81\u7801\u5B57\u5178[0];
-  const host = hostname, Ali_DoH = "https://dns.alidns.com/dns-query", ECH_SNI = "cloudflare-ech.com", \u5360\u4F4D\u7B26 = "{{IP:PORT}}", \u521D\u59CB\u5316\u5F00\u59CB\u65F6\u95F4 = performance.now(), \u9ED8\u8BA4\u914D\u7F6EJSON = {
-    TIME: (/* @__PURE__ */ new Date()).toISOString(),
-    HOST: host,
-    HOSTS: [hostname],
-    UUID: userID,
-    PATH: "/",
-    \u534F\u8BAE\u7C7B\u578B: "vless",
-    \u4F20\u8F93\u534F\u8BAE: "ws",
-    gRPC\u6A21\u5F0F: "gun",
-    gRPCUserAgent: UA,
-    \u8DF3\u8FC7\u8BC1\u4E66\u9A8C\u8BC1: false,
-    \u542F\u75280RTT: false,
-    TLS\u5206\u7247: null,
-    \u968F\u673A\u8DEF\u5F84: false,
-    ECH: false,
-    ECHConfig: {
-      DNS: Ali_DoH,
-      SNI: ECH_SNI
-    },
-    SS: {
-      \u52A0\u5BC6\u65B9\u5F0F: "aes-128-gcm",
-      TLS: true
-    },
-    Fingerprint: "chrome",
-    \u4F18\u9009\u8BA2\u9605\u751F\u6210: {
-      local: true,
-      // true: 基于本地的优选地址  false: 优选订阅生成器
-      \u672C\u5730IP\u5E93: {
-        \u968F\u673AIP: true,
-        // 当 随机IP 为true时生效，启用随机IP的数量，否则使用KV内的ADD.txt
-        \u968F\u673A\u6570\u91CF: 16,
-        \u6307\u5B9A\u7AEF\u53E3: -1
-      },
-      SUB: null,
-      SUBNAME: "edgetunnel",
-      SUBUpdateTime: 3,
-      // 订阅更新时间（小时）
-      TOKEN: await MD5MD5(hostname + userID)
-    },
-    \u8BA2\u9605\u8F6C\u6362\u914D\u7F6E: {
-      SUBAPI: `https://SUBAPI.${\u7279\u5F81\u7801\u5B57\u5178[1]}ssss.net`,
-      SUBCONFIG: `https://raw.githubusercontent.com/${\u7279\u5F81\u7801\u5B57\u5178[1]}/ACL4SSR/refs/heads/main/Clash/config/ACL4SSR_Online_Mini_MultiMode_CF.ini`,
-      SUBEMOJI: false,
-      SUBLIST: false,
-      //仅输出节点信息
-      UDP: false,
-      // 启用 UDP
-      XUDP: false,
-      // 启用 XUDP
-      TLS13: false,
-      // 启用 TLS 1.3
-      APPEND_TYPE: false,
-      // 插入节点类型
-      SORT: false
-      // 基础节点排序
-    },
-    \u53CD\u4EE3: {
-      [_p]: "auto",
-      SOCKS5: {
-        \u542F\u7528: null,
-        \u5168\u5C40: false,
-        \u8D26\u53F7: "",
-        \u767D\u540D\u5355: SOCKS5\u767D\u540D\u5355
-      },
-      \u8DEF\u5F84\u6A21\u677F: {
-        [_p]: "proxyip=" + \u5360\u4F4D\u7B26,
-        SOCKS5: {
-          \u5168\u5C40: "socks5://" + \u5360\u4F4D\u7B26,
-          \u6807\u51C6: "socks5=" + \u5360\u4F4D\u7B26
-        },
-        HTTP: {
-          \u5168\u5C40: "http://" + \u5360\u4F4D\u7B26,
-          \u6807\u51C6: "http=" + \u5360\u4F4D\u7B26
-        },
-        HTTPS: {
-          \u5168\u5C40: "https://" + \u5360\u4F4D\u7B26,
-          \u6807\u51C6: "https=" + \u5360\u4F4D\u7B26
-        },
-        TURN: {
-          \u5168\u5C40: "turn://" + \u5360\u4F4D\u7B26,
-          \u6807\u51C6: "turn=" + \u5360\u4F4D\u7B26
-        },
-        SSTP: {
-          \u5168\u5C40: "sstp://" + \u5360\u4F4D\u7B26,
-          \u6807\u51C6: "sstp=" + \u5360\u4F4D\u7B26
-        }
-      }
-    },
-    TG: {
-      \u542F\u7528: false,
-      BotToken: null,
-      ChatID: null
-    },
-    CF: {
-      Email: null,
-      GlobalAPIKey: null,
-      AccountID: null,
-      APIToken: null,
-      UsageAPI: null,
-      Usage: {
-        success: false,
-        pages: 0,
-        workers: 0,
-        total: 0,
-        max: 1e5
-      }
-    }
-  };
-  try {
-    let configJSON = await env.KV.get("config.json");
-    if (!configJSON || \u91CD\u7F6E\u914D\u7F6E == true) {
-      await env.KV.put("config.json", JSON.stringify(\u9ED8\u8BA4\u914D\u7F6EJSON, null, 2));
-      \u5C40\u90E8\u914D\u7F6E = \u9ED8\u8BA4\u914D\u7F6EJSON;
-    } else {
-      \u5C40\u90E8\u914D\u7F6E = JSON.parse(configJSON);
-    }
-  } catch (error) {
-    log(`\u8BFB\u53D6\u5C40\u90E8\u914D\u7F6E\u51FA\u9519: ${error.message}`);
-    \u5C40\u90E8\u914D\u7F6E = \u9ED8\u8BA4\u914D\u7F6EJSON;
-  }
-  if (!\u5C40\u90E8\u914D\u7F6E.\u8BA2\u9605\u8F6C\u6362\u914D\u7F6E.SUBLIST) \u5C40\u90E8\u914D\u7F6E.\u8BA2\u9605\u8F6C\u6362\u914D\u7F6E.SUBLIST = false;
-  if (!\u5C40\u90E8\u914D\u7F6E.\u8BA2\u9605\u8F6C\u6362\u914D\u7F6E.UDP) \u5C40\u90E8\u914D\u7F6E.\u8BA2\u9605\u8F6C\u6362\u914D\u7F6E.UDP = false;
-  if (!\u5C40\u90E8\u914D\u7F6E.\u8BA2\u9605\u8F6C\u6362\u914D\u7F6E.XUDP) \u5C40\u90E8\u914D\u7F6E.\u8BA2\u9605\u8F6C\u6362\u914D\u7F6E.XUDP = false;
-  if (!\u5C40\u90E8\u914D\u7F6E.\u8BA2\u9605\u8F6C\u6362\u914D\u7F6E.TLS13) \u5C40\u90E8\u914D\u7F6E.\u8BA2\u9605\u8F6C\u6362\u914D\u7F6E.TLS13 = false;
-  if (!\u5C40\u90E8\u914D\u7F6E.\u8BA2\u9605\u8F6C\u6362\u914D\u7F6E.APPEND_TYPE) \u5C40\u90E8\u914D\u7F6E.\u8BA2\u9605\u8F6C\u6362\u914D\u7F6E.APPEND_TYPE = false;
-  if (!\u5C40\u90E8\u914D\u7F6E.\u8BA2\u9605\u8F6C\u6362\u914D\u7F6E.SORT) \u5C40\u90E8\u914D\u7F6E.\u8BA2\u9605\u8F6C\u6362\u914D\u7F6E.SORT = false;
-  if (!\u5C40\u90E8\u914D\u7F6E.gRPCUserAgent) \u5C40\u90E8\u914D\u7F6E.gRPCUserAgent = UA;
-  \u5C40\u90E8\u914D\u7F6E.HOST = host;
-  if (!\u5C40\u90E8\u914D\u7F6E.HOSTS) \u5C40\u90E8\u914D\u7F6E.HOSTS = [hostname];
-  if (env.HOST) \u5C40\u90E8\u914D\u7F6E.HOSTS = (await \u6574\u7406\u6210\u6570\u7EC4(env.HOST)).map((h) => h.toLowerCase().replace(/^https?:\/\//, "").split("/")[0].split(":")[0]);
-  \u5C40\u90E8\u914D\u7F6E.UUID = userID;
-  if (!\u5C40\u90E8\u914D\u7F6E.\u968F\u673A\u8DEF\u5F84) \u5C40\u90E8\u914D\u7F6E.\u968F\u673A\u8DEF\u5F84 = false;
-  if (!\u5C40\u90E8\u914D\u7F6E.\u542F\u75280RTT) \u5C40\u90E8\u914D\u7F6E.\u542F\u75280RTT = false;
-  if (env.PATH) \u5C40\u90E8\u914D\u7F6E.PATH = env.PATH.startsWith("/") ? env.PATH : "/" + env.PATH;
-  else if (!\u5C40\u90E8\u914D\u7F6E.PATH) \u5C40\u90E8\u914D\u7F6E.PATH = "/";
-  if (!\u5C40\u90E8\u914D\u7F6E.gRPC\u6A21\u5F0F) \u5C40\u90E8\u914D\u7F6E.gRPC\u6A21\u5F0F = "gun";
-  if (!\u5C40\u90E8\u914D\u7F6E.SS) \u5C40\u90E8\u914D\u7F6E.SS = { \u52A0\u5BC6\u65B9\u5F0F: "aes-128-gcm", TLS: false };
-  if (!\u5C40\u90E8\u914D\u7F6E.\u53CD\u4EE3.\u8DEF\u5F84\u6A21\u677F?.[_p]) {
-    \u5C40\u90E8\u914D\u7F6E.\u53CD\u4EE3.\u8DEF\u5F84\u6A21\u677F = {
-      [_p]: "proxyip=" + \u5360\u4F4D\u7B26,
-      SOCKS5: {
-        \u5168\u5C40: "socks5://" + \u5360\u4F4D\u7B26,
-        \u6807\u51C6: "socks5=" + \u5360\u4F4D\u7B26
-      },
-      HTTP: {
-        \u5168\u5C40: "http://" + \u5360\u4F4D\u7B26,
-        \u6807\u51C6: "http=" + \u5360\u4F4D\u7B26
-      },
-      HTTPS: {
-        \u5168\u5C40: "https://" + \u5360\u4F4D\u7B26,
-        \u6807\u51C6: "https=" + \u5360\u4F4D\u7B26
-      },
-      TURN: {
-        \u5168\u5C40: "turn://" + \u5360\u4F4D\u7B26,
-        \u6807\u51C6: "turn=" + \u5360\u4F4D\u7B26
-      },
-      SSTP: {
-        \u5168\u5C40: "sstp://" + \u5360\u4F4D\u7B26,
-        \u6807\u51C6: "sstp=" + \u5360\u4F4D\u7B26
-      }
-    };
-  }
-  if (!\u5C40\u90E8\u914D\u7F6E.\u53CD\u4EE3.\u8DEF\u5F84\u6A21\u677F.HTTPS) \u5C40\u90E8\u914D\u7F6E.\u53CD\u4EE3.\u8DEF\u5F84\u6A21\u677F.HTTPS = { \u5168\u5C40: "https://" + \u5360\u4F4D\u7B26, \u6807\u51C6: "https=" + \u5360\u4F4D\u7B26 };
-  if (!\u5C40\u90E8\u914D\u7F6E.\u53CD\u4EE3.\u8DEF\u5F84\u6A21\u677F.TURN) \u5C40\u90E8\u914D\u7F6E.\u53CD\u4EE3.\u8DEF\u5F84\u6A21\u677F.TURN = { \u5168\u5C40: "turn://" + \u5360\u4F4D\u7B26, \u6807\u51C6: "turn=" + \u5360\u4F4D\u7B26 };
-  if (!\u5C40\u90E8\u914D\u7F6E.\u53CD\u4EE3.\u8DEF\u5F84\u6A21\u677F.SSTP) \u5C40\u90E8\u914D\u7F6E.\u53CD\u4EE3.\u8DEF\u5F84\u6A21\u677F.SSTP = { \u5168\u5C40: "sstp://" + \u5360\u4F4D\u7B26, \u6807\u51C6: "sstp=" + \u5360\u4F4D\u7B26 };
-  const \u4EE3\u7406\u914D\u7F6E = \u5C40\u90E8\u914D\u7F6E.\u53CD\u4EE3.\u8DEF\u5F84\u6A21\u677F[\u5C40\u90E8\u914D\u7F6E.\u53CD\u4EE3.SOCKS5.\u542F\u7528?.toUpperCase()];
-  let \u8DEF\u5F84\u53CD\u4EE3\u53C2\u6570 = "";
-  if (\u4EE3\u7406\u914D\u7F6E && \u5C40\u90E8\u914D\u7F6E.\u53CD\u4EE3.SOCKS5.\u8D26\u53F7) \u8DEF\u5F84\u53CD\u4EE3\u53C2\u6570 = (\u5C40\u90E8\u914D\u7F6E.\u53CD\u4EE3.SOCKS5.\u5168\u5C40 ? \u4EE3\u7406\u914D\u7F6E.\u5168\u5C40 : \u4EE3\u7406\u914D\u7F6E.\u6807\u51C6).replace(\u5360\u4F4D\u7B26, \u5C40\u90E8\u914D\u7F6E.\u53CD\u4EE3.SOCKS5.\u8D26\u53F7);
-  else if (\u5C40\u90E8\u914D\u7F6E.\u53CD\u4EE3[_p] !== "auto") \u8DEF\u5F84\u53CD\u4EE3\u53C2\u6570 = \u5C40\u90E8\u914D\u7F6E.\u53CD\u4EE3.\u8DEF\u5F84\u6A21\u677F[_p].replace(\u5360\u4F4D\u7B26, \u5C40\u90E8\u914D\u7F6E.\u53CD\u4EE3[_p]);
-  let \u53CD\u4EE3\u67E5\u8BE2\u53C2\u6570 = "";
-  if (\u8DEF\u5F84\u53CD\u4EE3\u53C2\u6570.includes("?")) {
-    const [\u53CD\u4EE3\u8DEF\u5F84\u90E8\u5206, \u53CD\u4EE3\u67E5\u8BE2\u90E8\u5206] = \u8DEF\u5F84\u53CD\u4EE3\u53C2\u6570.split("?");
-    \u8DEF\u5F84\u53CD\u4EE3\u53C2\u6570 = \u53CD\u4EE3\u8DEF\u5F84\u90E8\u5206;
-    \u53CD\u4EE3\u67E5\u8BE2\u53C2\u6570 = \u53CD\u4EE3\u67E5\u8BE2\u90E8\u5206;
-  }
-  \u5C40\u90E8\u914D\u7F6E.PATH = \u5C40\u90E8\u914D\u7F6E.PATH.replace(\u8DEF\u5F84\u53CD\u4EE3\u53C2\u6570, "").replace("//", "/");
-  const normalizedPath = \u5C40\u90E8\u914D\u7F6E.PATH === "/" ? "" : \u5C40\u90E8\u914D\u7F6E.PATH.replace(/\/+(?=\?|$)/, "").replace(/\/+$/, "");
-  const [\u8DEF\u5F84\u90E8\u5206, ...\u67E5\u8BE2\u6570\u7EC4] = normalizedPath.split("?");
-  const \u67E5\u8BE2\u90E8\u5206 = \u67E5\u8BE2\u6570\u7EC4.length ? "?" + \u67E5\u8BE2\u6570\u7EC4.join("?") : "";
-  const \u6700\u7EC8\u67E5\u8BE2\u90E8\u5206 = \u53CD\u4EE3\u67E5\u8BE2\u53C2\u6570 ? \u67E5\u8BE2\u90E8\u5206 ? \u67E5\u8BE2\u90E8\u5206 + "&" + \u53CD\u4EE3\u67E5\u8BE2\u53C2\u6570 : "?" + \u53CD\u4EE3\u67E5\u8BE2\u53C2\u6570 : \u67E5\u8BE2\u90E8\u5206;
-  \u5C40\u90E8\u914D\u7F6E.\u5B8C\u6574\u8282\u70B9\u8DEF\u5F84 = (\u8DEF\u5F84\u90E8\u5206 || "/") + (\u8DEF\u5F84\u90E8\u5206 && \u8DEF\u5F84\u53CD\u4EE3\u53C2\u6570 ? "/" : "") + \u8DEF\u5F84\u53CD\u4EE3\u53C2\u6570 + \u6700\u7EC8\u67E5\u8BE2\u90E8\u5206 + (\u5C40\u90E8\u914D\u7F6E.\u542F\u75280RTT ? (\u6700\u7EC8\u67E5\u8BE2\u90E8\u5206 ? "&" : "?") + "ed=2560" : "");
-  if (!\u5C40\u90E8\u914D\u7F6E.TLS\u5206\u7247 && \u5C40\u90E8\u914D\u7F6E.TLS\u5206\u7247 !== null) \u5C40\u90E8\u914D\u7F6E.TLS\u5206\u7247 = null;
-  const TLS\u5206\u7247\u53C2\u6570 = \u5C40\u90E8\u914D\u7F6E.TLS\u5206\u7247 == "Shadowrocket" ? `&fragment=${encodeURIComponent("1,40-60,30-50,tlshello")}` : \u5C40\u90E8\u914D\u7F6E.TLS\u5206\u7247 == "Happ" ? `&fragment=${encodeURIComponent("3,1,tlshello")}` : "";
-  if (!\u5C40\u90E8\u914D\u7F6E.Fingerprint) \u5C40\u90E8\u914D\u7F6E.Fingerprint = "chrome";
-  if (!\u5C40\u90E8\u914D\u7F6E.ECH) \u5C40\u90E8\u914D\u7F6E.ECH = false;
-  if (!\u5C40\u90E8\u914D\u7F6E.ECHConfig) \u5C40\u90E8\u914D\u7F6E.ECHConfig = { DNS: Ali_DoH, SNI: ECH_SNI };
-  const ECHLINK\u53C2\u6570 = \u5C40\u90E8\u914D\u7F6E.ECH ? `&ech=${encodeURIComponent((\u5C40\u90E8\u914D\u7F6E.ECHConfig.SNI ? \u5C40\u90E8\u914D\u7F6E.ECHConfig.SNI + "+" : "") + \u5C40\u90E8\u914D\u7F6E.ECHConfig.DNS)}` : "";
-  const { type: \u4F20\u8F93\u534F\u8BAE, \u8DEF\u5F84\u5B57\u6BB5\u540D, \u57DF\u540D\u5B57\u6BB5\u540D } = \u83B7\u53D6\u4F20\u8F93\u534F\u8BAE\u914D\u7F6E(\u5C40\u90E8\u914D\u7F6E);
-  const \u4F20\u8F93\u8DEF\u5F84\u53C2\u6570\u503C = \u83B7\u53D6\u4F20\u8F93\u8DEF\u5F84\u53C2\u6570\u503C(\u5C40\u90E8\u914D\u7F6E, \u5C40\u90E8\u914D\u7F6E.\u5B8C\u6574\u8282\u70B9\u8DEF\u5F84);
-  \u5C40\u90E8\u914D\u7F6E.LINK = \u5C40\u90E8\u914D\u7F6E.\u534F\u8BAE\u7C7B\u578B === "ss" ? `${\u5C40\u90E8\u914D\u7F6E.\u534F\u8BAE\u7C7B\u578B}://${btoa(\u5C40\u90E8\u914D\u7F6E.SS.\u52A0\u5BC6\u65B9\u5F0F + ":" + userID)}@${host}:${\u5C40\u90E8\u914D\u7F6E.SS.TLS ? "443" : "80"}?plugin=v2${encodeURIComponent(`ray-plugin;mode=websocket;host=${host};path=${(\u5C40\u90E8\u914D\u7F6E.\u5B8C\u6574\u8282\u70B9\u8DEF\u5F84.includes("?") ? \u5C40\u90E8\u914D\u7F6E.\u5B8C\u6574\u8282\u70B9\u8DEF\u5F84.replace("?", "?enc=" + \u5C40\u90E8\u914D\u7F6E.SS.\u52A0\u5BC6\u65B9\u5F0F + "&") : \u5C40\u90E8\u914D\u7F6E.\u5B8C\u6574\u8282\u70B9\u8DEF\u5F84 + "?enc=" + \u5C40\u90E8\u914D\u7F6E.SS.\u52A0\u5BC6\u65B9\u5F0F) + (\u5C40\u90E8\u914D\u7F6E.SS.TLS ? ";tls" : "")};mux=0`) + ECHLINK\u53C2\u6570}#${encodeURIComponent(\u5C40\u90E8\u914D\u7F6E.\u4F18\u9009\u8BA2\u9605\u751F\u6210.SUBNAME)}` : `${\u5C40\u90E8\u914D\u7F6E.\u534F\u8BAE\u7C7B\u578B}://${userID}@${host}:443?security=tls&type=${\u4F20\u8F93\u534F\u8BAE + ECHLINK\u53C2\u6570}&${\u57DF\u540D\u5B57\u6BB5\u540D}=${host}&fp=${\u5C40\u90E8\u914D\u7F6E.Fingerprint}&sni=${host}&${\u8DEF\u5F84\u5B57\u6BB5\u540D}=${encodeURIComponent(\u4F20\u8F93\u8DEF\u5F84\u53C2\u6570\u503C) + TLS\u5206\u7247\u53C2\u6570}&encryption=none#${encodeURIComponent(\u5C40\u90E8\u914D\u7F6E.\u4F18\u9009\u8BA2\u9605\u751F\u6210.SUBNAME)}`;
-  \u5C40\u90E8\u914D\u7F6E.\u4F18\u9009\u8BA2\u9605\u751F\u6210.TOKEN = await MD5MD5(hostname + userID);
-  const \u521D\u59CB\u5316TG_JSON = { BotToken: null, ChatID: null };
-  \u5C40\u90E8\u914D\u7F6E.TG = { \u542F\u7528: \u5C40\u90E8\u914D\u7F6E.TG.\u542F\u7528 ? \u5C40\u90E8\u914D\u7F6E.TG.\u542F\u7528 : false, ...\u521D\u59CB\u5316TG_JSON };
-  try {
-    const TG_TXT = await env.KV.get("tg.json");
-    if (!TG_TXT) {
-      await env.KV.put("tg.json", JSON.stringify(\u521D\u59CB\u5316TG_JSON, null, 2));
-    } else {
-      const TG_JSON = JSON.parse(TG_TXT);
-      \u5C40\u90E8\u914D\u7F6E.TG.ChatID = TG_JSON.ChatID ? TG_JSON.ChatID : null;
-      \u5C40\u90E8\u914D\u7F6E.TG.BotToken = TG_JSON.BotToken ? \u63A9\u7801\u654F\u611F\u4FE1\u606F(TG_JSON.BotToken) : null;
-    }
-  } catch (error) {
-    log(`\u8BFB\u53D6tg.json\u51FA\u9519: ${error.message}`);
-  }
-  const \u521D\u59CB\u5316CF_JSON = { Email: null, GlobalAPIKey: null, AccountID: null, APIToken: null, UsageAPI: null };
-  \u5C40\u90E8\u914D\u7F6E.CF = { ...\u521D\u59CB\u5316CF_JSON, Usage: { success: false, pages: 0, workers: 0, total: 0, max: 1e5 } };
-  try {
-    const CF_TXT = await env.KV.get("cf.json");
-    if (!CF_TXT) {
-      await env.KV.put("cf.json", JSON.stringify(\u521D\u59CB\u5316CF_JSON, null, 2));
-    } else {
-      const CF_JSON = JSON.parse(CF_TXT);
-      if (CF_JSON.UsageAPI) {
-        try {
-          const response = await fetch(CF_JSON.UsageAPI);
-          const Usage = await response.json();
-          \u5C40\u90E8\u914D\u7F6E.CF.Usage = Usage;
-        } catch (err) {
-          console.error(`\u8BF7\u6C42 CF_JSON.UsageAPI \u5931\u8D25: ${err.message}`);
-        }
-      } else {
-        \u5C40\u90E8\u914D\u7F6E.CF.Email = CF_JSON.Email ? CF_JSON.Email : null;
-        \u5C40\u90E8\u914D\u7F6E.CF.GlobalAPIKey = CF_JSON.GlobalAPIKey ? \u63A9\u7801\u654F\u611F\u4FE1\u606F(CF_JSON.GlobalAPIKey) : null;
-        \u5C40\u90E8\u914D\u7F6E.CF.AccountID = CF_JSON.AccountID ? \u63A9\u7801\u654F\u611F\u4FE1\u606F(CF_JSON.AccountID) : null;
-        \u5C40\u90E8\u914D\u7F6E.CF.APIToken = CF_JSON.APIToken ? \u63A9\u7801\u654F\u611F\u4FE1\u606F(CF_JSON.APIToken) : null;
-        \u5C40\u90E8\u914D\u7F6E.CF.UsageAPI = null;
-        const Usage = await getCloudflareUsage(CF_JSON.Email, CF_JSON.GlobalAPIKey, CF_JSON.AccountID, CF_JSON.APIToken);
-        \u5C40\u90E8\u914D\u7F6E.CF.Usage = Usage;
-      }
-    }
-  } catch (error) {
-    console.error(`\u8BFB\u53D6cf.json\u51FA\u9519: ${error.message}`);
-  }
-  \u5C40\u90E8\u914D\u7F6E.\u52A0\u8F7D\u65F6\u95F4 = (performance.now() - \u521D\u59CB\u5316\u5F00\u59CB\u65F6\u95F4).toFixed(2) + "ms";
-  return \u5C40\u90E8\u914D\u7F6E;
 }
 
 // src/outbound/sstp.js
@@ -2887,23 +1797,6 @@ SSTPCORRELATIONID: {${crypto.randomUUID()}}\r
 }
 
 // src/outbound/turn.js
-function stripIPv6Brackets(hostname = "") {
-  const host = String(hostname || "").trim();
-  return host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : host;
-}
-function isIPHostname(hostname = "") {
-  const host = stripIPv6Brackets(hostname);
-  const ipv4Regex = /^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/;
-  if (ipv4Regex.test(host)) return true;
-  if (!host.includes(":")) return false;
-  try {
-    new URL(`http://[${host}]/`);
-    return true;
-  } catch (e) {
-    return false;
-  }
-}
-var CONNECT_TIMEOUT_MS = 9999;
 var TURN_STUN_MAGIC_COOKIE = new Uint8Array([33, 18, 164, 66]);
 var TURN_STUN_TYPE = {
   ALLOCATE_REQUEST: 3,
@@ -2926,23 +1819,6 @@ var TURN_STUN_ATTR = {
   REQUESTED_TRANSPORT: 25,
   CONNECTION_ID: 42
 };
-async function withTimeout(promise, timeoutMs, message) {
-  let timer;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise((_, reject) => {
-        timer = setTimeout(() => reject(new Error(message)), timeoutMs);
-      })
-    ]);
-  } finally {
-    clearTimeout(timer);
-  }
-}
-function isIPv4(value) {
-  const parts = String(value || "").split(".");
-  return parts.length === 4 && parts.every((part) => /^\d{1,3}$/.test(part) && Number(part) >= 0 && Number(part) <= 255);
-}
 function turnStunPadding(length) {
   return -length & 3;
 }
@@ -2980,7 +1856,7 @@ async function addTurnMessageIntegrity(message, key) {
   return \u62FC\u63A5\u5B57\u8282\u6570\u636E(signedMessage, createTurnStunAttribute(TURN_STUN_ATTR.MESSAGE_INTEGRITY, new Uint8Array(signature)));
 }
 async function readTurnStunMessage(reader, bufferedData = null, timeoutMessage = "TURN response timed out") {
-  let buffer = \u6709\u6548\u6570\u636E\u957F\u5EA6(bufferedData) ? \u6570\u636E\u8F6CUint8Array(bufferedData) : new Uint8Array(0);
+  let buffer = \u6709\u6548\u6570\u636E\u957F\u5EA62(bufferedData) ? \u6570\u636E\u8F6CUint8Array(bufferedData) : new Uint8Array(0);
   const pull = async () => {
     const { done, value } = await withTimeout(reader.read(), CONNECT_TIMEOUT_MS, timeoutMessage);
     if (done) throw new Error("TURN server closed connection");
@@ -3168,230 +2044,6 @@ async function turnConnect(proxy, targetHost, targetPort, TCP\u8FDE\u63A5) {
     }
     releaseDataReader();
     close();
-    throw error;
-  }
-}
-
-// src/outbound/proxies.js
-async function socks5Connect(targetHost, targetPort, initialData, TCP\u8FDE\u63A5, parsedSocks5) {
-  const { username, password, hostname, port } = parsedSocks5 || {};
-  const socket = TCP\u8FDE\u63A5({ hostname, port }), writer = socket.writable.getWriter(), reader = socket.readable.getReader();
-  try {
-    const authMethods = username && password ? new Uint8Array([5, 2, 0, 2]) : new Uint8Array([5, 1, 0]);
-    await writer.write(authMethods);
-    let response = await reader.read();
-    if (response.done || response.value.byteLength < 2) throw new Error("S5 method selection failed");
-    const selectedMethod = new Uint8Array(response.value)[1];
-    if (selectedMethod === 2) {
-      if (!username || !password) throw new Error("S5 requires authentication");
-      const userBytes = new TextEncoder().encode(username), passBytes = new TextEncoder().encode(password);
-      const authPacket = new Uint8Array([1, userBytes.length, ...userBytes, passBytes.length, ...passBytes]);
-      await writer.write(authPacket);
-      response = await reader.read();
-      if (response.done || new Uint8Array(response.value)[1] !== 0) throw new Error("S5 authentication failed");
-    } else if (selectedMethod !== 0) throw new Error(`S5 unsupported auth method: ${selectedMethod}`);
-    const hostBytes = new TextEncoder().encode(targetHost);
-    const connectPacket = new Uint8Array([5, 1, 0, 3, hostBytes.length, ...hostBytes, targetPort >> 8, targetPort & 255]);
-    await writer.write(connectPacket);
-    response = await reader.read();
-    if (response.done || new Uint8Array(response.value)[1] !== 0) throw new Error("S5 connection failed");
-    if (\u6709\u6548\u6570\u636E\u957F\u5EA6(initialData) > 0) await writer.write(initialData);
-    writer.releaseLock();
-    reader.releaseLock();
-    return socket;
-  } catch (error) {
-    try {
-      writer.releaseLock();
-    } catch (e) {
-    }
-    try {
-      reader.releaseLock();
-    } catch (e) {
-    }
-    try {
-      socket.close();
-    } catch (e) {
-    }
-    throw error;
-  }
-}
-async function httpConnect(targetHost, targetPort, initialData, HTTPS\u4EE3\u7406 = false, TCP\u8FDE\u63A5, parsedSocks5) {
-  const { username, password, hostname, port } = parsedSocks5 || {};
-  const socket = HTTPS\u4EE3\u7406 ? TCP\u8FDE\u63A5({ hostname, port }, { secureTransport: "on", allowHalfOpen: false }) : TCP\u8FDE\u63A5({ hostname, port });
-  const writer = socket.writable.getWriter(), reader = socket.readable.getReader();
-  const encoder = new TextEncoder();
-  const decoder = new TextDecoder();
-  try {
-    if (HTTPS\u4EE3\u7406) await socket.opened;
-    const auth = username && password ? `Proxy-Authorization: Basic ${btoa(`${username}:${password}`)}\r
-` : "";
-    const request = `CONNECT ${targetHost}:${targetPort} HTTP/1.1\r
-Host: ${targetHost}:${targetPort}\r
-${auth}User-Agent: Mozilla/5.0\r
-Connection: keep-alive\r
-\r
-`;
-    await writer.write(encoder.encode(request));
-    writer.releaseLock();
-    let responseBuffer = new Uint8Array(0), headerEndIndex = -1, bytesRead = 0;
-    while (headerEndIndex === -1 && bytesRead < 8192) {
-      const { done, value } = await reader.read();
-      if (done || !value) throw new Error(`${HTTPS\u4EE3\u7406 ? "HTTPS" : "HTTP"} \u4EE3\u7406\u5728\u8FD4\u56DE CONNECT \u54CD\u5E94\u524D\u5173\u95ED\u8FDE\u63A5`);
-      responseBuffer = new Uint8Array([...responseBuffer, ...value]);
-      bytesRead = responseBuffer.length;
-      const crlfcrlf = responseBuffer.findIndex((_, i) => i < responseBuffer.length - 3 && responseBuffer[i] === 13 && responseBuffer[i + 1] === 10 && responseBuffer[i + 2] === 13 && responseBuffer[i + 3] === 10);
-      if (crlfcrlf !== -1) headerEndIndex = crlfcrlf + 4;
-    }
-    if (headerEndIndex === -1) throw new Error("\u4EE3\u7406 CONNECT \u54CD\u5E94\u5934\u8FC7\u957F\u6216\u65E0\u6548");
-    const statusMatch = decoder.decode(responseBuffer.slice(0, headerEndIndex)).split("\r\n")[0].match(/HTTP\/\d\.\d\s+(\d+)/);
-    const statusCode = statusMatch ? parseInt(statusMatch[1], 10) : NaN;
-    if (!Number.isFinite(statusCode) || statusCode < 200 || statusCode >= 300) throw new Error(`Connection failed: HTTP ${statusCode}`);
-    reader.releaseLock();
-    if (\u6709\u6548\u6570\u636E\u957F\u5EA6(initialData) > 0) {
-      const \u8FDC\u7AEF\u5199\u5165\u5668 = socket.writable.getWriter();
-      await \u8FDC\u7AEF\u5199\u5165\u5668.write(initialData);
-      \u8FDC\u7AEF\u5199\u5165\u5668.releaseLock();
-    }
-    if (bytesRead > headerEndIndex) {
-      const { readable, writable } = new TransformStream();
-      const transformWriter = writable.getWriter();
-      await transformWriter.write(responseBuffer.subarray(headerEndIndex, bytesRead));
-      transformWriter.releaseLock();
-      socket.readable.pipeTo(writable).catch(() => {
-      });
-      return { readable, writable: socket.writable, closed: socket.closed, close: () => socket.close() };
-    }
-    return socket;
-  } catch (error) {
-    try {
-      writer.releaseLock();
-    } catch (e) {
-    }
-    try {
-      reader.releaseLock();
-    } catch (e) {
-    }
-    try {
-      socket.close();
-    } catch (e) {
-    }
-    throw error;
-  }
-}
-async function httpsConnect(targetHost, targetPort, initialData, TCP\u8FDE\u63A5, parsedSocks5) {
-  const { username, password, hostname, port } = parsedSocks5 || {};
-  const encoder = new TextEncoder();
-  const decoder = new TextDecoder();
-  let tlsSocket = null;
-  const tlsServerName = isIPHostname(hostname) ? "" : stripIPv6Brackets(hostname);
-  const \u6253\u5F00HTTPS\u4EE3\u7406TLS = async (allowChacha = false) => {
-    const proxySocket = TCP\u8FDE\u63A5({ hostname, port });
-    try {
-      await proxySocket.opened;
-      const socket = new TlsClient(proxySocket, { serverName: tlsServerName, insecure: true, allowChacha });
-      await socket.handshake();
-      log(`[HTTPS\u4EE3\u7406] TLS\u7248\u672C: ${socket.isTls13 ? "1.3" : "1.2"} | Cipher: 0x${socket.cipherSuite.toString(16)}${socket.cipherConfig?.chacha ? " (ChaCha20)" : " (AES-GCM)"}`);
-      return socket;
-    } catch (error) {
-      try {
-        proxySocket.close();
-      } catch (e) {
-      }
-      throw error;
-    }
-  };
-  try {
-    try {
-      tlsSocket = await \u6253\u5F00HTTPS\u4EE3\u7406TLS(false);
-    } catch (error) {
-      if (!/cipher|handshake|TLS Alert|ServerHello|Finished|Unsupported|Missing TLS/i.test(error?.message || `${error || ""}`)) throw error;
-      log(`[HTTPS\u4EE3\u7406] AES-GCM TLS \u63E1\u624B\u5931\u8D25\uFF0C\u56DE\u9000 ChaCha20 \u517C\u5BB9\u6A21\u5F0F: ${error?.message || error}`);
-      tlsSocket = await \u6253\u5F00HTTPS\u4EE3\u7406TLS(true);
-    }
-    const auth = username && password ? `Proxy-Authorization: Basic ${btoa(`${username}:${password}`)}\r
-` : "";
-    const request = `CONNECT ${targetHost}:${targetPort} HTTP/1.1\r
-Host: ${targetHost}:${targetPort}\r
-${auth}User-Agent: Mozilla/5.0\r
-Connection: keep-alive\r
-\r
-`;
-    await tlsSocket.write(encoder.encode(request));
-    let responseBuffer = new Uint8Array(0), headerEndIndex = -1, bytesRead = 0;
-    while (headerEndIndex === -1 && bytesRead < 8192) {
-      const value = await tlsSocket.read();
-      if (!value) throw new Error("HTTPS \u4EE3\u7406\u5728\u8FD4\u56DE CONNECT \u54CD\u5E94\u524D\u5173\u95ED\u8FDE\u63A5");
-      responseBuffer = \u62FC\u63A5\u5B57\u8282\u6570\u636E(responseBuffer, value);
-      bytesRead = responseBuffer.length;
-      const crlfcrlf = responseBuffer.findIndex((_, i) => i < responseBuffer.length - 3 && responseBuffer[i] === 13 && responseBuffer[i + 1] === 10 && responseBuffer[i + 2] === 13 && responseBuffer[i + 3] === 10);
-      if (crlfcrlf !== -1) headerEndIndex = crlfcrlf + 4;
-    }
-    if (headerEndIndex === -1) throw new Error("HTTPS \u4EE3\u7406 CONNECT \u54CD\u5E94\u5934\u8FC7\u957F\u6216\u65E0\u6548");
-    const statusMatch = decoder.decode(responseBuffer.slice(0, headerEndIndex)).split("\r\n")[0].match(/HTTP\/\d\.\d\s+(\d+)/);
-    const statusCode = statusMatch ? parseInt(statusMatch[1], 10) : NaN;
-    if (!Number.isFinite(statusCode) || statusCode < 200 || statusCode >= 300) throw new Error(`Connection failed: HTTP ${statusCode}`);
-    if (\u6709\u6548\u6570\u636E\u957F\u5EA6(initialData) > 0) await tlsSocket.write(\u6570\u636E\u8F6CUint8Array(initialData));
-    const bufferedData = bytesRead > headerEndIndex ? responseBuffer.subarray(headerEndIndex, bytesRead) : null;
-    let closedSettled = false, resolveClosed, rejectClosed;
-    const settleClosed = (settle, value) => {
-      if (!closedSettled) {
-        closedSettled = true;
-        settle(value);
-      }
-    };
-    const closed = new Promise((resolve, reject) => {
-      resolveClosed = resolve;
-      rejectClosed = reject;
-    });
-    const close = () => {
-      try {
-        tlsSocket.close();
-      } catch (e) {
-      }
-      settleClosed(resolveClosed);
-    };
-    const readable = new ReadableStream({
-      async start(controller) {
-        try {
-          if (\u6709\u6548\u6570\u636E\u957F\u5EA6(bufferedData) > 0) controller.enqueue(bufferedData);
-          while (true) {
-            const data = await tlsSocket.read();
-            if (!data) break;
-            if (data.byteLength > 0) controller.enqueue(data);
-          }
-          try {
-            controller.close();
-          } catch (e) {
-          }
-          settleClosed(resolveClosed);
-        } catch (error) {
-          try {
-            controller.error(error);
-          } catch (e) {
-          }
-          settleClosed(rejectClosed, error);
-        }
-      },
-      cancel() {
-        close();
-      }
-    });
-    const writable = new WritableStream({
-      async write(chunk) {
-        await tlsSocket.write(\u6570\u636E\u8F6CUint8Array(chunk));
-      },
-      close,
-      abort(error) {
-        close();
-        if (error) settleClosed(rejectClosed, error);
-      }
-    });
-    return { readable, writable, closed, close };
-  } catch (error) {
-    try {
-      tlsSocket?.close();
-    } catch (e) {
-    }
     throw error;
   }
 }
@@ -3991,6 +2643,570 @@ async function connectStreams(remoteSocket, webSocket, headerData, retryFunc, is
   closeSocketQuietly(webSocket);
 }
 
+// src/net/ips.js
+function \u8BC6\u522B\u8FD0\u8425\u5546(request) {
+  const cf = request?.cf;
+  const ASN\u8FD0\u8425\u5546\u6620\u5C04 = {
+    "4134": "ct",
+    "4809": "ct",
+    "4811": "ct",
+    "4812": "ct",
+    "4815": "ct",
+    "4837": "cu",
+    "4814": "cu",
+    "9929": "cu",
+    "17623": "cu",
+    "17816": "cu",
+    "9808": "cmcc",
+    "24400": "cmcc",
+    "56040": "cmcc",
+    "56041": "cmcc",
+    "56044": "cmcc"
+  };
+  const \u8FD0\u8425\u5546\u5173\u952E\u8BCD\u6620\u5C04 = [
+    { code: "ct", pattern: /chinanet|chinatelecom|china telecom|cn2|shtel/ },
+    { code: "cmcc", pattern: /cmi|cmnet|chinamobile|china mobile|cmcc|mobile communications/ },
+    { code: "cu", pattern: /china169|china unicom|chinaunicom|cucc|cncgroup|cuii|netcom/ }
+  ];
+  if (String(cf?.country || "").toLowerCase() !== "cn") return "cf";
+  const \u7EC4\u7EC7\u540D\u79F0 = String(cf?.asOrganization || "").toLowerCase();
+  const \u547D\u4E2D\u8FD0\u8425\u5546 = \u8FD0\u8425\u5546\u5173\u952E\u8BCD\u6620\u5C04.find(({ pattern }) => pattern.test(\u7EC4\u7EC7\u540D\u79F0))?.code;
+  return \u547D\u4E2D\u8FD0\u8425\u5546 || ASN\u8FD0\u8425\u5546\u6620\u5C04[String(cf?.asn || "")] || "cf";
+}
+async function \u751F\u6210\u968F\u673AIP(request, count = 16, \u6307\u5B9A\u7AEF\u53E3 = -1) {
+  const url = new URL(request.url);
+  const \u67E5\u8BE2\u53C2\u6570\u8FD0\u8425\u5546 = String(url.searchParams.get("cnIspCode") || "").toLowerCase();
+  const \u8FD0\u8425\u5546\u6587\u4EF6\u6807\u8BC6 = ["ct", "cu", "cmcc", "cf"].includes(\u67E5\u8BE2\u53C2\u6570\u8FD0\u8425\u5546) ? \u67E5\u8BE2\u53C2\u6570\u8FD0\u8425\u5546 : \u8BC6\u522B\u8FD0\u8425\u5546(request);
+  const \u8FD0\u8425\u5546\u540D\u79F0\u6620\u5C04 = {
+    cmcc: "CF\u79FB\u52A8\u4F18\u9009",
+    cu: "CF\u8054\u901A\u4F18\u9009",
+    ct: "CF\u7535\u4FE1\u4F18\u9009",
+    cf: "CF\u5B98\u65B9\u4F18\u9009"
+  };
+  const cidr_url = \u8FD0\u8425\u5546\u6587\u4EF6\u6807\u8BC6 === "cf" ? `https://raw.githubusercontent.com/${\u7279\u5F81\u7801\u5B57\u5178[1]}/${\u7279\u5F81\u7801\u5B57\u5178[1]}/main/CF-CIDR.txt` : `https://raw.githubusercontent.com/${\u7279\u5F81\u7801\u5B57\u5178[1]}/${\u7279\u5F81\u7801\u5B57\u5178[1]}/main/CF-CIDR/${\u8FD0\u8425\u5546\u6587\u4EF6\u6807\u8BC6}.txt`;
+  const cfname = \u8FD0\u8425\u5546\u540D\u79F0\u6620\u5C04[\u8FD0\u8425\u5546\u6587\u4EF6\u6807\u8BC6] || "CF\u5B98\u65B9\u4F18\u9009";
+  const cfport = [443, 2053, 2083, 2087, 2096, 8443];
+  let cidrList = [];
+  try {
+    const res = await fetch(cidr_url);
+    cidrList = res.ok ? await \u6574\u7406\u6210\u6570\u7EC4(await res.text()) : ["104.16.0.0/13"];
+  } catch {
+    cidrList = ["104.16.0.0/13"];
+  }
+  const generateRandomIPFromCIDR = (cidr) => {
+    const [baseIP, prefixLength] = cidr.split("/"), prefix = parseInt(prefixLength), hostBits = 32 - prefix;
+    const ipInt = baseIP.split(".").reduce((a, p, i) => a | parseInt(p) << 24 - i * 8, 0);
+    const randomOffset = Math.floor(Math.random() * Math.pow(2, hostBits));
+    const mask = 4294967295 << hostBits >>> 0, randomIP = ((ipInt & mask) >>> 0) + randomOffset >>> 0;
+    return [randomIP >>> 24 & 255, randomIP >>> 16 & 255, randomIP >>> 8 & 255, randomIP & 255].join(".");
+  };
+  const randomIPs = Array.from({ length: count }, (_, index) => {
+    const ip = generateRandomIPFromCIDR(cidrList[Math.floor(Math.random() * cidrList.length)]);
+    const \u76EE\u6807\u7AEF\u53E3 = \u6307\u5B9A\u7AEF\u53E3 === -1 ? cfport[Math.floor(Math.random() * cfport.length)] : \u6307\u5B9A\u7AEF\u53E3;
+    return `${ip}:${\u76EE\u6807\u7AEF\u53E3}#${cfname}${index + 1}`;
+  });
+  return [randomIPs, randomIPs.join("\n")];
+}
+async function \u6574\u7406\u6210\u6570\u7EC4(\u5185\u5BB9) {
+  var \u66FF\u6362\u540E\u7684\u5185\u5BB9 = \u5185\u5BB9.replace(/[	"'\r\n]+/g, ",").replace(/,+/g, ",");
+  if (\u66FF\u6362\u540E\u7684\u5185\u5BB9.charAt(0) == ",") \u66FF\u6362\u540E\u7684\u5185\u5BB9 = \u66FF\u6362\u540E\u7684\u5185\u5BB9.slice(1);
+  if (\u66FF\u6362\u540E\u7684\u5185\u5BB9.charAt(\u66FF\u6362\u540E\u7684\u5185\u5BB9.length - 1) == ",") \u66FF\u6362\u540E\u7684\u5185\u5BB9 = \u66FF\u6362\u540E\u7684\u5185\u5BB9.slice(0, \u66FF\u6362\u540E\u7684\u5185\u5BB9.length - 1);
+  const \u5730\u5740\u6570\u7EC4 = \u66FF\u6362\u540E\u7684\u5185\u5BB9.split(",");
+  return \u5730\u5740\u6570\u7EC4;
+}
+async function \u83B7\u53D6\u4F18\u9009\u8BA2\u9605\u751F\u6210\u5668\u6570\u636E(\u4F18\u9009\u8BA2\u9605\u751F\u6210\u5668HOST) {
+  let \u4F18\u9009IP = [], \u5176\u4ED6\u8282\u70B9LINK = "", \u683C\u5F0F\u5316HOST = \u4F18\u9009\u8BA2\u9605\u751F\u6210\u5668HOST.replace(/^sub:\/\//i, "https://").split("#")[0].split("?")[0];
+  if (!/^https?:\/\//i.test(\u683C\u5F0F\u5316HOST)) \u683C\u5F0F\u5316HOST = `https://${\u683C\u5F0F\u5316HOST}`;
+  try {
+    const url = new URL(\u683C\u5F0F\u5316HOST);
+    \u683C\u5F0F\u5316HOST = url.origin;
+  } catch (error) {
+    \u4F18\u9009IP.push(`127.0.0.1:1234#${\u4F18\u9009\u8BA2\u9605\u751F\u6210\u5668HOST}\u4F18\u9009\u8BA2\u9605\u751F\u6210\u5668\u683C\u5F0F\u5316\u5F02\u5E38:${error.message}`);
+    return [\u4F18\u9009IP, \u5176\u4ED6\u8282\u70B9LINK];
+  }
+  const \u4F18\u9009\u8BA2\u9605\u751F\u6210\u5668URL = `${\u683C\u5F0F\u5316HOST}/sub?host=example.com&uuid=00000000-0000-4000-8000-000000000000`;
+  try {
+    const response = await fetch(\u4F18\u9009\u8BA2\u9605\u751F\u6210\u5668URL, {
+      headers: { "User-Agent": "v2rayN/edgetunnel (https://github.com/" + \u7279\u5F81\u7801\u5B57\u5178[1] + "/edgetunnel)" }
+    });
+    if (!response.ok) {
+      \u4F18\u9009IP.push(`127.0.0.1:1234#${\u4F18\u9009\u8BA2\u9605\u751F\u6210\u5668HOST}\u4F18\u9009\u8BA2\u9605\u751F\u6210\u5668\u5F02\u5E38:${response.statusText}`);
+      return [\u4F18\u9009IP, \u5176\u4ED6\u8282\u70B9LINK];
+    }
+    const \u4F18\u9009\u8BA2\u9605\u751F\u6210\u5668\u8FD4\u56DE\u8BA2\u9605\u5185\u5BB9 = atob(await response.text());
+    const \u8BA2\u9605\u884C\u5217\u8868 = \u4F18\u9009\u8BA2\u9605\u751F\u6210\u5668\u8FD4\u56DE\u8BA2\u9605\u5185\u5BB9.includes("\r\n") ? \u4F18\u9009\u8BA2\u9605\u751F\u6210\u5668\u8FD4\u56DE\u8BA2\u9605\u5185\u5BB9.split("\r\n") : \u4F18\u9009\u8BA2\u9605\u751F\u6210\u5668\u8FD4\u56DE\u8BA2\u9605\u5185\u5BB9.split("\n");
+    for (const \u884C\u5185\u5BB9 of \u8BA2\u9605\u884C\u5217\u8868) {
+      if (!\u884C\u5185\u5BB9.trim()) continue;
+      if (\u884C\u5185\u5BB9.includes("00000000-0000-4000-8000-000000000000") && \u884C\u5185\u5BB9.includes("example.com")) {
+        const \u5730\u5740\u5339\u914D = \u884C\u5185\u5BB9.match(/:\/\/[^@]+@([^?]+)/);
+        if (\u5730\u5740\u5339\u914D) {
+          let \u5730\u5740\u7AEF\u53E3 = \u5730\u5740\u5339\u914D[1], \u5907\u6CE8 = "";
+          const \u5907\u6CE8\u5339\u914D = \u884C\u5185\u5BB9.match(/#(.+)$/);
+          if (\u5907\u6CE8\u5339\u914D) \u5907\u6CE8 = "#" + decodeURIComponent(\u5907\u6CE8\u5339\u914D[1]);
+          \u4F18\u9009IP.push(\u5730\u5740\u7AEF\u53E3 + \u5907\u6CE8);
+        }
+      } else {
+        \u5176\u4ED6\u8282\u70B9LINK += \u884C\u5185\u5BB9 + "\n";
+      }
+    }
+  } catch (error) {
+    \u4F18\u9009IP.push(`127.0.0.1:1234#${\u4F18\u9009\u8BA2\u9605\u751F\u6210\u5668HOST}\u4F18\u9009\u8BA2\u9605\u751F\u6210\u5668\u5F02\u5E38:${error.message}`);
+  }
+  return [\u4F18\u9009IP, \u5176\u4ED6\u8282\u70B9LINK];
+}
+async function \u8BF7\u6C42\u4F18\u9009API(urls, \u9ED8\u8BA4\u7AEF\u53E3 = "443", \u8D85\u65F6\u65F6\u95F4 = 3e3) {
+  if (!urls?.length) return [[], [], [], []];
+  const results = /* @__PURE__ */ new Set(), \u53CD\u4EE3IP\u6C60 = /* @__PURE__ */ new Set();
+  let \u8BA2\u9605\u94FE\u63A5\u54CD\u5E94\u7684\u660E\u6587LINK\u5185\u5BB9 = "", \u9700\u8981\u8BA2\u9605\u8F6C\u6362\u8BA2\u9605URLs = [];
+  await Promise.allSettled(urls.map(async (url) => {
+    const hashIndex = url.indexOf("#");
+    const urlWithoutHash = hashIndex > -1 ? url.substring(0, hashIndex) : url;
+    const API\u5907\u6CE8\u540D = hashIndex > -1 ? decodeURIComponent(url.substring(hashIndex + 1)) : null;
+    const \u4F18\u9009IP\u4F5C\u4E3A\u53CD\u4EE3IP = url.toLowerCase().includes("proxyip=true");
+    if (urlWithoutHash.toLowerCase().startsWith("sub://")) {
+      try {
+        const [\u4F18\u9009IP, \u5176\u4ED6\u8282\u70B9LINK] = await \u83B7\u53D6\u4F18\u9009\u8BA2\u9605\u751F\u6210\u5668\u6570\u636E(urlWithoutHash);
+        if (API\u5907\u6CE8\u540D) {
+          for (const ip of \u4F18\u9009IP) {
+            const \u5904\u7406\u540EIP = ip.includes("#") ? `${ip} [${API\u5907\u6CE8\u540D}]` : `${ip}#[${API\u5907\u6CE8\u540D}]`;
+            results.add(\u5904\u7406\u540EIP);
+            if (\u4F18\u9009IP\u4F5C\u4E3A\u53CD\u4EE3IP) \u53CD\u4EE3IP\u6C60.add(ip.split("#")[0]);
+          }
+        } else {
+          for (const ip of \u4F18\u9009IP) {
+            results.add(ip);
+            if (\u4F18\u9009IP\u4F5C\u4E3A\u53CD\u4EE3IP) \u53CD\u4EE3IP\u6C60.add(ip.split("#")[0]);
+          }
+        }
+        if (\u5176\u4ED6\u8282\u70B9LINK && typeof \u5176\u4ED6\u8282\u70B9LINK === "string" && API\u5907\u6CE8\u540D) {
+          const \u5904\u7406\u540ELINK\u5185\u5BB9 = \u5176\u4ED6\u8282\u70B9LINK.replace(/([a-z][a-z0-9+\-.]*:\/\/[^\r\n]*?)(\r?\n|$)/gi, (match, link, lineEnd) => {
+            const \u5B8C\u6574\u94FE\u63A5 = link.includes("#") ? `${link}${encodeURIComponent(` [${API\u5907\u6CE8\u540D}]`)}` : `${link}${encodeURIComponent(`#[${API\u5907\u6CE8\u540D}]`)}`;
+            return `${\u5B8C\u6574\u94FE\u63A5}${lineEnd}`;
+          });
+          \u8BA2\u9605\u94FE\u63A5\u54CD\u5E94\u7684\u660E\u6587LINK\u5185\u5BB9 += \u5904\u7406\u540ELINK\u5185\u5BB9;
+        } else if (\u5176\u4ED6\u8282\u70B9LINK && typeof \u5176\u4ED6\u8282\u70B9LINK === "string") {
+          \u8BA2\u9605\u94FE\u63A5\u54CD\u5E94\u7684\u660E\u6587LINK\u5185\u5BB9 += \u5176\u4ED6\u8282\u70B9LINK;
+        }
+      } catch (e) {
+      }
+      return;
+    }
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), \u8D85\u65F6\u65F6\u95F4);
+      const response = await fetch(urlWithoutHash, { signal: controller.signal });
+      clearTimeout(timeoutId);
+      let text = "";
+      try {
+        const buffer = await response.arrayBuffer();
+        const contentType = (response.headers.get("content-type") || "").toLowerCase();
+        const charset = contentType.match(/charset=([^\s;]+)/i)?.[1]?.toLowerCase() || "";
+        let decoders = ["utf-8", "gb2312"];
+        if (charset.includes("gb") || charset.includes("gbk") || charset.includes("gb2312")) {
+          decoders = ["gb2312", "utf-8"];
+        }
+        let decodeSuccess = false;
+        for (const decoder of decoders) {
+          try {
+            const decoded = new TextDecoder(decoder).decode(buffer);
+            if (decoded && decoded.length > 0 && !decoded.includes("\uFFFD")) {
+              text = decoded;
+              decodeSuccess = true;
+              break;
+            } else if (decoded && decoded.length > 0) {
+              continue;
+            }
+          } catch (e) {
+            continue;
+          }
+        }
+        if (!decodeSuccess) {
+          text = await response.text();
+        }
+        if (!text || text.trim().length === 0) {
+          return;
+        }
+      } catch (e) {
+        log("Failed to decode response:", e);
+        return;
+      }
+      let \u9884\u5904\u7406\u8BA2\u9605\u660E\u6587\u5185\u5BB9 = text;
+      const cleanText = typeof text === "string" ? text.replace(/\s/g, "") : "";
+      if (cleanText.length > 0 && cleanText.length % 4 === 0 && /^[A-Za-z0-9+/]+={0,2}$/.test(cleanText)) {
+        try {
+          const bytes = new Uint8Array(atob(cleanText).split("").map((c) => c.charCodeAt(0)));
+          \u9884\u5904\u7406\u8BA2\u9605\u660E\u6587\u5185\u5BB9 = new TextDecoder("utf-8").decode(bytes);
+        } catch {
+        }
+      }
+      if (\u9884\u5904\u7406\u8BA2\u9605\u660E\u6587\u5185\u5BB9.split("#")[0].includes("://")) {
+        if (API\u5907\u6CE8\u540D) {
+          const \u5904\u7406\u540ELINK\u5185\u5BB9 = \u9884\u5904\u7406\u8BA2\u9605\u660E\u6587\u5185\u5BB9.replace(/([a-z][a-z0-9+\-.]*:\/\/[^\r\n]*?)(\r?\n|$)/gi, (match, link, lineEnd) => {
+            const \u5B8C\u6574\u94FE\u63A5 = link.includes("#") ? `${link}${encodeURIComponent(` [${API\u5907\u6CE8\u540D}]`)}` : `${link}${encodeURIComponent(`#[${API\u5907\u6CE8\u540D}]`)}`;
+            return `${\u5B8C\u6574\u94FE\u63A5}${lineEnd}`;
+          });
+          \u8BA2\u9605\u94FE\u63A5\u54CD\u5E94\u7684\u660E\u6587LINK\u5185\u5BB9 += \u5904\u7406\u540ELINK\u5185\u5BB9 + "\n";
+        } else {
+          \u8BA2\u9605\u94FE\u63A5\u54CD\u5E94\u7684\u660E\u6587LINK\u5185\u5BB9 += \u9884\u5904\u7406\u8BA2\u9605\u660E\u6587\u5185\u5BB9 + "\n";
+        }
+        return;
+      }
+      const lines = text.trim().split("\n").map((l) => l.trim()).filter((l) => l);
+      const isCSV = lines.length > 1 && lines[0].includes(",");
+      const IPV6_PATTERN = /^[^\[\]]*:[^\[\]]*:[^\[\]]/;
+      const parsedUrl = new URL(urlWithoutHash);
+      if (!isCSV) {
+        lines.forEach((line) => {
+          const lineHashIndex = line.indexOf("#");
+          const [hostPart, remark] = lineHashIndex > -1 ? [line.substring(0, lineHashIndex), line.substring(lineHashIndex)] : [line, ""];
+          let hasPort = false;
+          if (hostPart.startsWith("[")) {
+            hasPort = /\]:(\d+)$/.test(hostPart);
+          } else {
+            const colonIndex = hostPart.lastIndexOf(":");
+            hasPort = colonIndex > -1 && /^\d+$/.test(hostPart.substring(colonIndex + 1));
+          }
+          const port = parsedUrl.searchParams.get("port") || \u9ED8\u8BA4\u7AEF\u53E3;
+          const ipItem = hasPort ? line : `${hostPart}:${port}${remark}`;
+          if (API\u5907\u6CE8\u540D) {
+            const \u5904\u7406\u540EIP = ipItem.includes("#") ? `${ipItem} [${API\u5907\u6CE8\u540D}]` : `${ipItem}#[${API\u5907\u6CE8\u540D}]`;
+            results.add(\u5904\u7406\u540EIP);
+          } else {
+            results.add(ipItem);
+          }
+          if (\u4F18\u9009IP\u4F5C\u4E3A\u53CD\u4EE3IP) \u53CD\u4EE3IP\u6C60.add(ipItem.split("#")[0]);
+        });
+      } else {
+        const headers = lines[0].split(",").map((h) => h.trim());
+        const dataLines = lines.slice(1);
+        if (headers.includes("IP\u5730\u5740") && headers.includes("\u7AEF\u53E3") && headers.includes("\u6570\u636E\u4E2D\u5FC3")) {
+          const ipIdx = headers.indexOf("IP\u5730\u5740"), portIdx = headers.indexOf("\u7AEF\u53E3");
+          const remarkIdx = headers.indexOf("\u56FD\u5BB6") > -1 ? headers.indexOf("\u56FD\u5BB6") : headers.indexOf("\u57CE\u5E02") > -1 ? headers.indexOf("\u57CE\u5E02") : headers.indexOf("\u6570\u636E\u4E2D\u5FC3");
+          const tlsIdx = headers.indexOf("TLS");
+          dataLines.forEach((line) => {
+            const cols = line.split(",").map((c) => c.trim());
+            if (tlsIdx !== -1 && cols[tlsIdx]?.toLowerCase() !== "true") return;
+            const wrappedIP = IPV6_PATTERN.test(cols[ipIdx]) ? `[${cols[ipIdx]}]` : cols[ipIdx];
+            const ipItem = `${wrappedIP}:${cols[portIdx]}#${cols[remarkIdx]}`;
+            if (API\u5907\u6CE8\u540D) {
+              const \u5904\u7406\u540EIP = `${ipItem} [${API\u5907\u6CE8\u540D}]`;
+              results.add(\u5904\u7406\u540EIP);
+            } else {
+              results.add(ipItem);
+            }
+            if (\u4F18\u9009IP\u4F5C\u4E3A\u53CD\u4EE3IP) \u53CD\u4EE3IP\u6C60.add(`${wrappedIP}:${cols[portIdx]}`);
+          });
+        } else if (headers.some((h) => h.includes("IP")) && headers.some((h) => h.includes("\u5EF6\u8FDF")) && headers.some((h) => h.includes("\u4E0B\u8F7D\u901F\u5EA6"))) {
+          const ipIdx = headers.findIndex((h) => h.includes("IP"));
+          const delayIdx = headers.findIndex((h) => h.includes("\u5EF6\u8FDF"));
+          const speedIdx = headers.findIndex((h) => h.includes("\u4E0B\u8F7D\u901F\u5EA6"));
+          const port = parsedUrl.searchParams.get("port") || \u9ED8\u8BA4\u7AEF\u53E3;
+          dataLines.forEach((line) => {
+            const cols = line.split(",").map((c) => c.trim());
+            const wrappedIP = IPV6_PATTERN.test(cols[ipIdx]) ? `[${cols[ipIdx]}]` : cols[ipIdx];
+            const ipItem = `${wrappedIP}:${port}#CF\u4F18\u9009 ${cols[delayIdx]}ms ${cols[speedIdx]}MB/s`;
+            if (API\u5907\u6CE8\u540D) {
+              const \u5904\u7406\u540EIP = `${ipItem} [${API\u5907\u6CE8\u540D}]`;
+              results.add(\u5904\u7406\u540EIP);
+            } else {
+              results.add(ipItem);
+            }
+            if (\u4F18\u9009IP\u4F5C\u4E3A\u53CD\u4EE3IP) \u53CD\u4EE3IP\u6C60.add(`${wrappedIP}:${port}`);
+          });
+        }
+      }
+    } catch (e) {
+    }
+  }));
+  const LINK\u6570\u7EC4 = \u8BA2\u9605\u94FE\u63A5\u54CD\u5E94\u7684\u660E\u6587LINK\u5185\u5BB9.trim() ? [...new Set(\u8BA2\u9605\u94FE\u63A5\u54CD\u5E94\u7684\u660E\u6587LINK\u5185\u5BB9.split(/\r?\n/).filter((line) => line.trim() !== ""))] : [];
+  return [Array.from(results), LINK\u6570\u7EC4, \u9700\u8981\u8BA2\u9605\u8F6C\u6362\u8BA2\u9605URLs, Array.from(\u53CD\u4EE3IP\u6C60)];
+}
+
+// src/web.js
+async function getCloudflareUsage(Email, GlobalAPIKey, AccountID, APIToken) {
+  const API = "https://api.cloudflare.com/client/v4";
+  const sum = (a) => a?.reduce((t, i) => t + (i?.sum?.requests || 0), 0) || 0;
+  const cfg = { "Content-Type": "application/json" };
+  try {
+    if (!AccountID && (!Email || !GlobalAPIKey)) return { success: false, pages: 0, workers: 0, total: 0, max: 1e5 };
+    if (!AccountID) {
+      const r = await fetch(`${API}/accounts`, {
+        method: "GET",
+        headers: { ...cfg, "X-AUTH-EMAIL": Email, "X-AUTH-KEY": GlobalAPIKey }
+      });
+      if (!r.ok) throw new Error(`\u8D26\u6237\u83B7\u53D6\u5931\u8D25: ${r.status}`);
+      const d = await r.json();
+      if (!d?.result?.length) throw new Error("\u672A\u627E\u5230\u8D26\u6237");
+      const idx = d.result.findIndex((a) => a.name?.toLowerCase().startsWith(Email.toLowerCase()));
+      AccountID = d.result[idx >= 0 ? idx : 0]?.id;
+    }
+    const now = /* @__PURE__ */ new Date();
+    now.setUTCHours(0, 0, 0, 0);
+    const hdr = APIToken ? { ...cfg, "Authorization": `Bearer ${APIToken}` } : { ...cfg, "X-AUTH-EMAIL": Email, "X-AUTH-KEY": GlobalAPIKey };
+    const res = await fetch(`${API}/graphql`, {
+      method: "POST",
+      headers: hdr,
+      body: JSON.stringify({
+        query: `query getBillingMetrics($AccountID: String!, $filter: AccountWorkersInvocationsAdaptiveFilter_InputObject) {
+					viewer { accounts(filter: {accountTag: $AccountID}) {
+						pagesFunctionsInvocationsAdaptiveGroups(limit: 1000, filter: $filter) { sum { requests } }
+						workersInvocationsAdaptive(limit: 10000, filter: $filter) { sum { requests } }
+					} }
+				}`,
+        variables: { AccountID, filter: { datetime_geq: now.toISOString(), datetime_leq: (/* @__PURE__ */ new Date()).toISOString() } }
+      })
+    });
+    if (!res.ok) throw new Error(`\u67E5\u8BE2\u5931\u8D25: ${res.status}`);
+    const result = await res.json();
+    if (result.errors?.length) throw new Error(result.errors[0].message);
+    const acc = result?.data?.viewer?.accounts?.[0];
+    if (!acc) throw new Error("\u672A\u627E\u5230\u8D26\u6237\u6570\u636E");
+    const pages = sum(acc.pagesFunctionsInvocationsAdaptiveGroups);
+    const workers = sum(acc.workersInvocationsAdaptive);
+    const total = pages + workers;
+    const max = 1e5;
+    log(`\u7EDF\u8BA1\u7ED3\u679C - Pages: ${pages}, Workers: ${workers}, \u603B\u8BA1: ${total}, \u4E0A\u9650: 100000`);
+    return { success: true, pages, workers, total, max };
+  } catch (error) {
+    log("\u83B7\u53D6\u4F7F\u7528\u91CF\u9519\u8BEF:", error.message);
+    return { success: false, pages: 0, workers: 0, total: 0, max: 1e5 };
+  }
+}
+function sha224(s) {
+  const K = [1116352408, 1899447441, 3049323471, 3921009573, 961987163, 1508970993, 2453635748, 2870763221, 3624381080, 310598401, 607225278, 1426881987, 1925078388, 2162078206, 2614888103, 3248222580, 3835390401, 4022224774, 264347078, 604807628, 770255983, 1249150122, 1555081692, 1996064986, 2554220882, 2821834349, 2952996808, 3210313671, 3336571891, 3584528711, 113926993, 338241895, 666307205, 773529912, 1294757372, 1396182291, 1695183700, 1986661051, 2177026350, 2456956037, 2730485921, 2820302411, 3259730800, 3345764771, 3516065817, 3600352804, 4094571909, 275423344, 430227734, 506948616, 659060556, 883997877, 958139571, 1322822218, 1537002063, 1747873779, 1955562222, 2024104815, 2227730452, 2361852424, 2428436474, 2756734187, 3204031479, 3329325298];
+  const r = (n, b) => (n >>> b | n << 32 - b) >>> 0;
+  s = unescape(encodeURIComponent(s));
+  const l = s.length * 8;
+  s += String.fromCharCode(128);
+  while (s.length * 8 % 512 !== 448) s += String.fromCharCode(0);
+  const h = [3238371032, 914150663, 812702999, 4144912697, 4290775857, 1750603025, 1694076839, 3204075428];
+  const hi = Math.floor(l / 4294967296), lo = l & 4294967295;
+  s += String.fromCharCode(hi >>> 24 & 255, hi >>> 16 & 255, hi >>> 8 & 255, hi & 255, lo >>> 24 & 255, lo >>> 16 & 255, lo >>> 8 & 255, lo & 255);
+  const w = [];
+  for (let i = 0; i < s.length; i += 4) w.push(s.charCodeAt(i) << 24 | s.charCodeAt(i + 1) << 16 | s.charCodeAt(i + 2) << 8 | s.charCodeAt(i + 3));
+  for (let i = 0; i < w.length; i += 16) {
+    const x = new Array(64).fill(0);
+    for (let j = 0; j < 16; j++) x[j] = w[i + j];
+    for (let j = 16; j < 64; j++) {
+      const s0 = r(x[j - 15], 7) ^ r(x[j - 15], 18) ^ x[j - 15] >>> 3;
+      const s1 = r(x[j - 2], 17) ^ r(x[j - 2], 19) ^ x[j - 2] >>> 10;
+      x[j] = x[j - 16] + s0 + x[j - 7] + s1 >>> 0;
+    }
+    let [a, b, c, d, e, f, g, h0] = h;
+    for (let j = 0; j < 64; j++) {
+      const S1 = r(e, 6) ^ r(e, 11) ^ r(e, 25), ch = e & f ^ ~e & g, t1 = h0 + S1 + ch + K[j] + x[j] >>> 0;
+      const S0 = r(a, 2) ^ r(a, 13) ^ r(a, 22), maj = a & b ^ a & c ^ b & c, t2 = S0 + maj >>> 0;
+      h0 = g;
+      g = f;
+      f = e;
+      e = d + t1 >>> 0;
+      d = c;
+      c = b;
+      b = a;
+      a = t1 + t2 >>> 0;
+    }
+    for (let j = 0; j < 8; j++) h[j] = h[j] + (j === 0 ? a : j === 1 ? b : j === 2 ? c : j === 3 ? d : j === 4 ? e : j === 5 ? f : j === 6 ? g : h0) >>> 0;
+  }
+  let hex = "";
+  for (let i = 0; i < 7; i++) {
+    for (let j = 24; j >= 0; j -= 8) hex += (h[i] >>> j & 255).toString(16).padStart(2, "0");
+  }
+  return hex;
+}
+async function \u89E3\u6790\u5730\u5740\u7AEF\u53E3(proxyIP, \u76EE\u6807\u57DF\u540D = "dash.cloudflare.com", UUID = "00000000-0000-4000-8000-000000000000") {
+  proxyIP = proxyIP.toLowerCase();
+  function \u89E3\u6790\u5730\u5740\u7AEF\u53E3\u5B57\u7B26\u4E32(str) {
+    let \u5730\u5740 = str, \u7AEF\u53E3 = 443;
+    if (str.includes("]:")) {
+      const parts = str.split("]:");
+      \u5730\u5740 = parts[0] + "]";
+      \u7AEF\u53E3 = parseInt(parts[1], 10) || \u7AEF\u53E3;
+    } else if ((str.match(/:/g) || []).length === 1 && !str.startsWith("[")) {
+      const colonIndex = str.lastIndexOf(":");
+      \u5730\u5740 = str.slice(0, colonIndex);
+      \u7AEF\u53E3 = parseInt(str.slice(colonIndex + 1), 10) || \u7AEF\u53E3;
+    }
+    return [\u5730\u5740, \u7AEF\u53E3];
+  }
+  function \u89E3\u6790TXT\u53CD\u4EE3\u8BB0\u5F55(txtData) {
+    return txtData.flatMap((data) => {
+      if (data.startsWith('"') && data.endsWith('"')) data = data.slice(1, -1);
+      return data.replace(/\\010/g, ",").replace(/\n/g, ",").split(",").map((s) => s.trim()).filter(Boolean);
+    }).map((prefix) => \u89E3\u6790\u5730\u5740\u7AEF\u53E3\u5B57\u7B26\u4E32(prefix));
+  }
+  const \u53CD\u4EE3IP\u6570\u7EC4 = await \u6574\u7406\u6210\u6570\u7EC4(proxyIP);
+  let \u6240\u6709\u53CD\u4EE3\u6570\u7EC4 = [];
+  const ipv4Regex = /^(25[0-5]|2[0-4]\d|[01]?\d\d?)\.(25[0-5]|2[0-4]\d|[01]?\d\d?)\.(25[0-5]|2[0-4]\d|[01]?\d\d?)\.(25[0-5]|2[0-4]\d|[01]?\d\d?)$/;
+  const ipv6Regex = /^\[?(?:[a-fA-F0-9]{0,4}:){1,7}[a-fA-F0-9]{0,4}\]?$/;
+  for (const singleProxyIP of \u53CD\u4EE3IP\u6570\u7EC4) {
+    let [\u5730\u5740, \u7AEF\u53E3] = \u89E3\u6790\u5730\u5740\u7AEF\u53E3\u5B57\u7B26\u4E32(singleProxyIP);
+    if (singleProxyIP.includes(".tp")) {
+      const tpMatch = singleProxyIP.match(/\.tp(\d+)/);
+      if (tpMatch) \u7AEF\u53E3 = parseInt(tpMatch[1], 10);
+    }
+    if (ipv4Regex.test(\u5730\u5740) || ipv6Regex.test(\u5730\u5740)) {
+      log(`[\u53CD\u4EE3\u89E3\u6790] ${\u5730\u5740} \u4E3AIP\u5730\u5740\uFF0C\u76F4\u63A5\u4F7F\u7528`);
+      \u6240\u6709\u53CD\u4EE3\u6570\u7EC4.push([\u5730\u5740, \u7AEF\u53E3]);
+      continue;
+    }
+    const [txtRecords, aRecords] = await Promise.all([
+      DoH\u67E5\u8BE2(\u5730\u5740, "TXT"),
+      DoH\u67E5\u8BE2(\u5730\u5740, "A")
+    ]);
+    const txtData = txtRecords.filter((r) => r.type === 16).map((r) => r.data);
+    const txtAddresses = \u89E3\u6790TXT\u53CD\u4EE3\u8BB0\u5F55(txtData);
+    if (txtAddresses.length > 0) {
+      log(`[\u53CD\u4EE3\u89E3\u6790] ${\u5730\u5740} \u4F7F\u7528TXT\u8BB0\u5F55\uFF0C\u5171${txtAddresses.length}\u4E2A\u7ED3\u679C`);
+      \u6240\u6709\u53CD\u4EE3\u6570\u7EC4.push(...txtAddresses);
+      continue;
+    }
+    const ipv4List = aRecords.filter((r) => r.type === 1).map((r) => r.data);
+    if (ipv4List.length > 0) {
+      log(`[\u53CD\u4EE3\u89E3\u6790] ${\u5730\u5740} \u672A\u83B7\u53D6\u5230TXT\u8BB0\u5F55\uFF0C\u4F7F\u7528A\u8BB0\u5F55\uFF0C\u5171${ipv4List.length}\u4E2A\u7ED3\u679C`);
+      \u6240\u6709\u53CD\u4EE3\u6570\u7EC4.push(...ipv4List.map((ip) => [ip, \u7AEF\u53E3]));
+      continue;
+    }
+    const aaaaRecords = await DoH\u67E5\u8BE2(\u5730\u5740, "AAAA");
+    const ipv6List = aaaaRecords.filter((r) => r.type === 28).map((r) => `[${r.data}]`);
+    if (ipv6List.length > 0) {
+      log(`[\u53CD\u4EE3\u89E3\u6790] ${\u5730\u5740} \u672A\u83B7\u53D6\u5230TXT\u548CA\u8BB0\u5F55\uFF0C\u4F7F\u7528AAAA\u8BB0\u5F55\uFF0C\u5171${ipv6List.length}\u4E2A\u7ED3\u679C`);
+      \u6240\u6709\u53CD\u4EE3\u6570\u7EC4.push(...ipv6List.map((ip) => [ip, \u7AEF\u53E3]));
+    } else {
+      log(`[\u53CD\u4EE3\u89E3\u6790] ${\u5730\u5740} \u672A\u83B7\u53D6\u5230TXT\u3001A\u548CAAAA\u8BB0\u5F55\uFF0C\u4FDD\u7559\u539F\u57DF\u540D`);
+      \u6240\u6709\u53CD\u4EE3\u6570\u7EC4.push([\u5730\u5740, \u7AEF\u53E3]);
+    }
+  }
+  const \u6392\u5E8F\u540E\u6570\u7EC4 = \u6240\u6709\u53CD\u4EE3\u6570\u7EC4.sort((a, b) => a[0].localeCompare(b[0]));
+  const \u76EE\u6807\u6839\u57DF\u540D = \u76EE\u6807\u57DF\u540D.includes(".") ? \u76EE\u6807\u57DF\u540D.split(".").slice(-2).join(".") : \u76EE\u6807\u57DF\u540D;
+  let \u968F\u673A\u79CD\u5B50 = [...\u76EE\u6807\u6839\u57DF\u540D + UUID].reduce((a, c) => a + c.charCodeAt(0), 0);
+  log(`[\u53CD\u4EE3\u89E3\u6790] \u968F\u673A\u79CD\u5B50: ${\u968F\u673A\u79CD\u5B50}
+\u76EE\u6807\u7AD9\u70B9: ${\u76EE\u6807\u6839\u57DF\u540D}`);
+  const \u6D17\u724C\u540E = [...\u6392\u5E8F\u540E\u6570\u7EC4].sort(() => (\u968F\u673A\u79CD\u5B50 = \u968F\u673A\u79CD\u5B50 * 1103515245 + 12345 & 2147483647) / 2147483647 - 0.5);
+  const \u89E3\u6790\u7ED3\u679C = \u6D17\u724C\u540E.slice(0, 8);
+  log(`[\u53CD\u4EE3\u89E3\u6790] \u89E3\u6790\u5B8C\u6210 \u603B\u6570: ${\u89E3\u6790\u7ED3\u679C.length}\u4E2A
+${\u89E3\u6790\u7ED3\u679C.map(([ip, port], index) => `${index + 1}. ${ip}:${port}`).join("\n")}`);
+  return \u89E3\u6790\u7ED3\u679C;
+}
+async function nginx() {
+  return `
+	<!DOCTYPE html>
+	<html>
+	<head>
+	<title>Welcome to nginx!</title>
+	<style>
+		body {
+			width: 35em;
+			margin: 0 auto;
+			font-family: Tahoma, Verdana, Arial, sans-serif;
+		}
+	</style>
+	</head>
+	<body>
+	<h1>Welcome to nginx!</h1>
+	<p>If you see this page, the nginx web server is successfully installed and
+	working. Further configuration is required.</p>
+
+	<p>For online documentation and support please refer to
+	<a href="http://nginx.org/">nginx.org</a>.<br/>
+	Commercial support is available at
+	<a href="http://nginx.com/">nginx.com</a>.</p>
+
+	<p><em>Thank you for using nginx.</em></p>
+	</body>
+	</html>
+	`;
+}
+async function html1101(host, \u8BBF\u95EEIP) {
+  const now = /* @__PURE__ */ new Date();
+  const \u683C\u5F0F\u5316\u65F6\u95F4\u6233 = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0") + "-" + String(now.getDate()).padStart(2, "0") + " " + String(now.getHours()).padStart(2, "0") + ":" + String(now.getMinutes()).padStart(2, "0") + ":" + String(now.getSeconds()).padStart(2, "0");
+  const \u968F\u673A\u5B57\u7B26\u4E32 = Array.from(crypto.getRandomValues(new Uint8Array(8))).map((b) => b.toString(16).padStart(2, "0")).join("");
+  return `<!DOCTYPE html>
+<!--[if lt IE 7]> <html class="no-js ie6 oldie" lang="en-US"> <![endif]-->
+<!--[if IE 7]>    <html class="no-js ie7 oldie" lang="en-US"> <![endif]-->
+<!--[if IE 8]>    <html class="no-js ie8 oldie" lang="en-US"> <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en-US"> <!--<![endif]-->
+<head>
+<title>Worker threw exception | ${host} | Cloudflare</title>
+<meta charset="UTF-8" />
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<meta http-equiv="X-UA-Compatible" content="IE=Edge" />
+<meta name="robots" content="noindex, nofollow" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<link rel="stylesheet" id="cf_styles-css" href="/cdn-cgi/styles/cf.errors.css" />
+<!--[if lt IE 9]><link rel="stylesheet" id='cf_styles-ie-css' href="/cdn-cgi/styles/cf.errors.ie.css" /><![endif]-->
+<style>body{margin:0;padding:0}</style>
+
+
+<!--[if gte IE 10]><!-->
+<script>
+  if (!navigator.cookieEnabled) {
+    window.addEventListener('DOMContentLoaded', function () {
+      var cookieEl = document.getElementById('cookie-alert');
+      cookieEl.style.display = 'block';
+    })
+  }
+</script>
+<!--<![endif]-->
+
+</head>
+<body>
+    <div id="cf-wrapper">
+        <div class="cf-alert cf-alert-error cf-cookie-error" id="cookie-alert" data-translate="enable_cookies">Please enable cookies.</div>
+        <div id="cf-error-details" class="cf-error-details-wrapper">
+            <div class="cf-wrapper cf-header cf-error-overview">
+                <h1>
+                    <span class="cf-error-type" data-translate="error">Error</span>
+                    <span class="cf-error-code">1101</span>
+                    <small class="heading-ray-id">Ray ID: ${\u968F\u673A\u5B57\u7B26\u4E32} &bull; ${\u683C\u5F0F\u5316\u65F6\u95F4\u6233} UTC</small>
+                </h1>
+                <h2 class="cf-subheadline" data-translate="error_desc">Worker threw exception</h2>
+            </div><!-- /.header -->
+
+            <section></section><!-- spacer -->
+
+            <div class="cf-section cf-wrapper">
+                <div class="cf-columns two">
+                    <div class="cf-column">
+                        <h2 data-translate="what_happened">What happened?</h2>
+                            <p>You've requested a page on a website (${host}) that is on the <a href="https://www.cloudflare.com/5xx-error-landing?utm_source=error_100x" target="_blank">Cloudflare</a> network. An unknown error occurred while rendering the page.</p>
+                    </div>
+
+                    <div class="cf-column">
+                        <h2 data-translate="what_can_i_do">What can I do?</h2>
+                            <p><strong>If you are the owner of this website:</strong><br />refer to <a href="https://developers.cloudflare.com/workers/observability/errors/" target="_blank">Workers - Errors and Exceptions</a> and check Workers Logs for ${host}.</p>
+                    </div>
+
+                </div>
+            </div><!-- /.section -->
+
+            <div class="cf-error-footer cf-wrapper w-240 lg:w-full py-10 sm:py-4 sm:px-8 mx-auto text-center sm:text-left border-solid border-0 border-t border-gray-300">
+    <p class="text-13">
+      <span class="cf-footer-item sm:block sm:mb-1">Cloudflare Ray ID: <strong class="font-semibold"> ${\u968F\u673A\u5B57\u7B26\u4E32}</strong></span>
+      <span class="cf-footer-separator sm:hidden">&bull;</span>
+      <span id="cf-footer-item-ip" class="cf-footer-item hidden sm:block sm:mb-1">
+        Your IP:
+        <button type="button" id="cf-footer-ip-reveal" class="cf-footer-ip-reveal-btn">Click to reveal</button>
+        <span class="hidden" id="cf-footer-ip">${\u8BBF\u95EEIP}</span>
+        <span class="cf-footer-separator sm:hidden">&bull;</span>
+      </span>
+      <span class="cf-footer-item sm:block sm:mb-1"><span>Performance &amp; security by</span> <a rel="noopener noreferrer" href="https://www.cloudflare.com/5xx-error-landing" id="brand_link" target="_blank">Cloudflare</a></span>
+
+    </p>
+    <script>(function(){function d(){var b=a.getElementById("cf-footer-item-ip"),c=a.getElementById("cf-footer-ip-reveal");b&&"classList"in b&&(b.classList.remove("hidden"),c.addEventListener("click",function(){c.classList.add("hidden");a.getElementById("cf-footer-ip").classList.remove("hidden")}))}var a=document;document.addEventListener&&a.addEventListener("DOMContentLoaded",d)})();</script>
+  </div><!-- /.error-footer -->
+
+        </div><!-- /#cf-error-details -->
+    </div><!-- /#cf-wrapper -->
+
+     <script>
+    window._cf_translation = {};
+
+
+  </script>
+</body>
+</html>`;
+}
+
 // src/outbound/forward.js
 async function forwardataTCP(host, portNum, rawData, ws, respHeader, remoteConnWrapper, yourUUID, request = null, \u53CD\u4EE3\u4E0A\u4E0B\u6587 = {}, \u5141\u8BB8\u6728\u9A6C\u53CD\u4EE3 = false, \u6728\u9A6C\u53CD\u4EE3\u9996\u5305\u6570\u636E = null, \u4EC5\u5EFA\u7ACB\u8FDE\u63A5 = false) {
   const ctx\u53CD\u4EE3IP = \u53CD\u4EE3\u4E0A\u4E0B\u6587.\u53CD\u4EE3IP || "";
@@ -4068,7 +3284,7 @@ async function forwardataTCP(host, portNum, rawData, ws, respHeader, remoteConnW
     }
   }
   async function \u5199\u5165\u9996\u5305(remoteSock, data) {
-    if (\u6709\u6548\u6570\u636E\u957F\u5EA6(data) <= 0) return;
+    if (\u6709\u6548\u6570\u636E\u957F\u5EA62(data) <= 0) return;
     const writer = remoteSock.writable.getWriter();
     try {
       await writer.write(\u6570\u636E\u8F6CUint8Array(data));
@@ -4196,14 +3412,14 @@ async function forwardataTCP(host, portNum, rawData, ws, respHeader, remoteConnW
     const { generation: \u5F53\u524D\u8FDE\u63A5\u4E16\u4EE3, downlinkDrain } = \u5F00\u59CBTCP\u8FDE\u63A5\u4E16\u4EE3(remoteConnWrapper);
     let \u672C\u6B21\u53D1\u9001\u9996\u5305 = false, \u672C\u6B21\u9996\u5305\u6570\u636E = null;
     if (\u4F7F\u7528\u6728\u9A6C\u53CD\u4EE3) {
-      if (\u5141\u8BB8\u53D1\u9001\u9996\u5305 && !\u5DF2\u901A\u8FC7\u4EE3\u7406\u53D1\u9001\u9996\u5305 && \u6709\u6548\u6570\u636E\u957F\u5EA6(\u6728\u9A6C\u53CD\u4EE3\u9996\u5305\u6570\u636E) > 0) {
+      if (\u5141\u8BB8\u53D1\u9001\u9996\u5305 && !\u5DF2\u901A\u8FC7\u4EE3\u7406\u53D1\u9001\u9996\u5305 && \u6709\u6548\u6570\u636E\u957F\u5EA62(\u6728\u9A6C\u53CD\u4EE3\u9996\u5305\u6570\u636E) > 0) {
         \u672C\u6B21\u9996\u5305\u6570\u636E = \u6728\u9A6C\u53CD\u4EE3\u9996\u5305\u6570\u636E;
-        \u672C\u6B21\u53D1\u9001\u9996\u5305 = \u6709\u6548\u6570\u636E\u957F\u5EA6(rawData) > 0;
+        \u672C\u6B21\u53D1\u9001\u9996\u5305 = \u6709\u6548\u6570\u636E\u957F\u5EA62(rawData) > 0;
       } else {
         \u672C\u6B21\u9996\u5305\u6570\u636E = \u6728\u9A6C\u53CD\u4EE3\u63E1\u624B\u6570\u636E;
       }
     } else {
-      \u672C\u6B21\u53D1\u9001\u9996\u5305 = \u5141\u8BB8\u53D1\u9001\u9996\u5305 && !\u5DF2\u901A\u8FC7\u4EE3\u7406\u53D1\u9001\u9996\u5305 && \u6709\u6548\u6570\u636E\u957F\u5EA6(rawData) > 0;
+      \u672C\u6B21\u53D1\u9001\u9996\u5305 = \u5141\u8BB8\u53D1\u9001\u9996\u5305 && !\u5DF2\u901A\u8FC7\u4EE3\u7406\u53D1\u9001\u9996\u5305 && \u6709\u6548\u6570\u636E\u957F\u5EA62(rawData) > 0;
       \u672C\u6B21\u9996\u5305\u6570\u636E = \u672C\u6B21\u53D1\u9001\u9996\u5305 ? rawData : null;
     }
     const \u5F53\u524D\u8FDE\u63A5\u4EFB\u52A1 = (async () => {
@@ -4224,7 +3440,7 @@ async function forwardataTCP(host, portNum, rawData, ws, respHeader, remoteConnW
         } else if (ctx\u4EE3\u7406\u7C7B\u578B === "turn") {
           log(`[TURN\u4EE3\u7406] \u4EE3\u7406\u5230: ${host}:${portNum}`);
           newSocket = await turnConnect(ctx\u4EE3\u7406\u53C2\u6570, host, portNum, TCP\u8FDE\u63A5);
-          if (\u6709\u6548\u6570\u636E\u957F\u5EA6(\u672C\u6B21\u9996\u5305\u6570\u636E) > 0) {
+          if (\u6709\u6548\u6570\u636E\u957F\u5EA62(\u672C\u6B21\u9996\u5305\u6570\u636E) > 0) {
             const writer = newSocket.writable.getWriter();
             try {
               await writer.write(\u6570\u636E\u8F6CUint8Array(\u672C\u6B21\u9996\u5305\u6570\u636E));
@@ -4238,7 +3454,7 @@ async function forwardataTCP(host, portNum, rawData, ws, respHeader, remoteConnW
         } else if (ctx\u4EE3\u7406\u7C7B\u578B === "sstp") {
           log(`[SSTP\u4EE3\u7406] \u4EE3\u7406\u5230: ${host}:${portNum}`);
           newSocket = await sstpConnect(ctx\u4EE3\u7406\u53C2\u6570, host, portNum, TCP\u8FDE\u63A5);
-          if (\u6709\u6548\u6570\u636E\u957F\u5EA6(\u672C\u6B21\u9996\u5305\u6570\u636E) > 0) {
+          if (\u6709\u6548\u6570\u636E\u957F\u5EA62(\u672C\u6B21\u9996\u5305\u6570\u636E) > 0) {
             const writer = newSocket.writable.getWriter();
             try {
               await writer.write(\u6570\u636E\u8F6CUint8Array(\u672C\u6B21\u9996\u5305\u6570\u636E));
@@ -4381,41 +3597,6 @@ function \u89E3\u6790\u6728\u9A6C\u53CD\u4EE3\u5730\u5740(address) {
   const port = Number(portText);
   if (!hostname || !Number.isInteger(port) || port < 1 || port > 65535) throw new Error("\u65E0\u6548\u7684\u6728\u9A6C\u53CD\u4EE3\u7AEF\u53E3");
   return { hostname, port };
-}
-async function \u8FDE\u63A5\u6728\u9A6C\u53CD\u4EE3(\u9996\u5305\u6570\u636E, TCP\u8FDE\u63A5, \u6728\u9A6C\u53CD\u4EE3\u76EE\u6807) {
-  if (!\u6728\u9A6C\u53CD\u4EE3\u76EE\u6807) throw new Error("trojan fallback is not configured");
-  const socket = TCP\u8FDE\u63A5({ hostname: stripIPv6Brackets(\u6728\u9A6C\u53CD\u4EE3\u76EE\u6807.hostname), port: \u6728\u9A6C\u53CD\u4EE3\u76EE\u6807.port });
-  let writer = null;
-  try {
-    if (socket.opened) await socket.opened;
-    if (\u6709\u6548\u6570\u636E\u957F\u5EA6(\u9996\u5305\u6570\u636E) > 0) {
-      writer = socket.writable.getWriter();
-      await writer.write(\u6570\u636E\u8F6CUint8Array(\u9996\u5305\u6570\u636E));
-    }
-    return socket;
-  } catch (error) {
-    try {
-      socket?.close?.();
-    } catch (e) {
-    }
-    throw error;
-  } finally {
-    try {
-      writer?.releaseLock();
-    } catch (e) {
-    }
-  }
-}
-function \u63D0\u53D6\u6728\u9A6C\u53CD\u4EE3\u63E1\u624B\u6570\u636E(\u9996\u5305\u6570\u636E, rawData) {
-  const \u9996\u5305 = \u6570\u636E\u8F6CUint8Array(\u9996\u5305\u6570\u636E);
-  const payload = \u6570\u636E\u8F6CUint8Array(rawData);
-  if (!payload.byteLength) return \u9996\u5305;
-  const \u63E1\u624B\u957F\u5EA6 = \u9996\u5305.byteLength - payload.byteLength;
-  if (\u63E1\u624B\u957F\u5EA6 <= 0) return \u9996\u5305;
-  for (let i = 0; i < payload.byteLength; i++) {
-    if (\u9996\u5305[\u63E1\u624B\u957F\u5EA6 + i] !== payload[i]) return \u9996\u5305;
-  }
-  return \u9996\u5305.subarray(0, \u63E1\u624B\u957F\u5EA6);
 }
 async function \u8F6C\u53D1\u6728\u9A6CUDP\u53CD\u4EE3\u6570\u636E(chunk, webSocket, \u4E0A\u4E0B\u6587, request) {
   const data = \u6570\u636E\u8F6CUint8Array(chunk);
@@ -4660,7 +3841,7 @@ function \u6784\u9020\u672C\u5730204\u54CD\u5E94(respHeader = null) {
   const \u672C\u5730204\u54CD\u5E94 = new TextEncoder().encode(
     "HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
   );
-  if (\u6709\u6548\u6570\u636E\u957F\u5EA6(respHeader) === 0) return \u672C\u5730204\u54CD\u5E94;
+  if (\u6709\u6548\u6570\u636E\u957F\u5EA62(respHeader) === 0) return \u672C\u5730204\u54CD\u5E94;
   const \u534F\u8BAE\u54CD\u5E94\u5934 = \u6570\u636E\u8F6CUint8Array(respHeader);
   const response = new Uint8Array(\u534F\u8BAE\u54CD\u5E94\u5934.byteLength + \u672C\u5730204\u54CD\u5E94.byteLength);
   response.set(\u534F\u8BAE\u54CD\u5E94\u5934, 0);
@@ -4672,7 +3853,7 @@ function \u6784\u9020WS\u672C\u5730204\u54CD\u5E94(respHeader = null) {
   const WS\u672C\u5730204\u54CD\u5E94 = new TextEncoder().encode(
     "HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: keep-alive\r\n\r\n"
   );
-  if (\u6709\u6548\u6570\u636E\u957F\u5EA6(respHeader) === 0) return WS\u672C\u5730204\u54CD\u5E94;
+  if (\u6709\u6548\u6570\u636E\u957F\u5EA62(respHeader) === 0) return WS\u672C\u5730204\u54CD\u5E94;
   const \u534F\u8BAE\u54CD\u5E94\u5934 = \u6570\u636E\u8F6CUint8Array(respHeader);
   const response = new Uint8Array(\u534F\u8BAE\u54CD\u5E94\u5934.byteLength + WS\u672C\u5730204\u54CD\u5E94.byteLength);
   response.set(\u534F\u8BAE\u54CD\u5E94\u5934, 0);
@@ -5193,48 +4374,6 @@ function \u5904\u7406\u53C9HTTPUDP\u8BF7\u6C42(\u9996\u5305, reader, request, \u
     }
   }), { status: 200, headers: responseHeaders });
 }
-function \u6709\u6548\u6570\u636E\u957F\u5EA6(data) {
-  if (!data) return 0;
-  if (typeof data.byteLength === "number") return data.byteLength;
-  if (typeof data.length === "number") return data.length;
-  return 0;
-}
-function \u5931\u6548TCP\u8FDE\u63A5\u4E16\u4EE3(remoteConnWrapper) {
-  if (!remoteConnWrapper) return;
-  remoteConnWrapper.generation = (Number.isInteger(remoteConnWrapper.generation) ? remoteConnWrapper.generation : 0) + 1;
-  const socket = remoteConnWrapper.socket;
-  remoteConnWrapper.socket = null;
-  remoteConnWrapper.downlinkController = null;
-  remoteConnWrapper.downlinkDrain = Promise.resolve();
-  try {
-    socket?.close?.();
-  } catch (e) {
-  }
-}
-function \u5F00\u59CBTCP\u8FDE\u63A5\u4E16\u4EE3(remoteConnWrapper) {
-  if (!Number.isInteger(remoteConnWrapper.generation)) remoteConnWrapper.generation = 0;
-  const generation = ++remoteConnWrapper.generation;
-  const previousSocket = remoteConnWrapper.socket;
-  remoteConnWrapper.socket = null;
-  const previousDownlink = remoteConnWrapper.downlinkController;
-  remoteConnWrapper.downlinkController = null;
-  const previousDrain = remoteConnWrapper.downlinkDrain || Promise.resolve();
-  let currentDrain;
-  try {
-    currentDrain = previousDownlink?.\u505C\u6B62\u5E76\u5237\u65B0?.() || Promise.resolve();
-  } catch (error) {
-    currentDrain = Promise.reject(error);
-  }
-  const downlinkDrain = Promise.all([previousDrain, currentDrain]);
-  downlinkDrain.catch(() => {
-  });
-  remoteConnWrapper.downlinkDrain = downlinkDrain;
-  try {
-    previousSocket?.close?.();
-  } catch (e) {
-  }
-  return { generation, downlinkDrain };
-}
 async function \u8BFB\u53D6\u53C9HTTP\u9996\u5305(reader, token) {
   const decoder = \u9B4F\u70C8\u601D\u6587\u672C\u89E3\u7801\u5668;
   const \u5C1D\u8BD5\u89E3\u6790\u9B4F\u70C8\u601D\u9996\u5305 = (data) => {
@@ -5378,7 +4517,7 @@ async function \u5904\u7406gRPC\u8BF7\u6C42(request, yourUUID, \u53CD\u4EE3\u4E0
   if (!request.body) return new Response("Bad Request", { status: 400 });
   const reader = request.body.getReader();
   const remoteConnWrapper = { socket: null, connectingPromise: null, retryConnect: null, downlinkDrain: Promise.resolve() };
-  const \u5931\u6548\u8FDC\u7AEF\u8FDE\u63A5 = () => \u5931\u6548TCP\u8FDE\u63A5\u4E16\u4EE3(remoteConnWrapper);
+  const \u5931\u6548\u8FDC\u7AEF\u8FDE\u63A5 = () => \u5931\u6548TCP\u8FDE\u63A5\u4E16\u4EE32(remoteConnWrapper);
   let isDnsQuery = false;
   const \u6728\u9A6CUDP\u4E0A\u4E0B\u6587 = { \u7F13\u5B58: new Uint8Array(0), \u53CD\u4EE3\u5730\u5740: \u53CD\u4EE3\u4E0A\u4E0B\u6587.\u6728\u9A6C\u53CD\u4EE3\u5730\u5740 };
   let \u5224\u65AD\u662F\u5426\u662F\u6728\u9A6C = null;
@@ -5595,7 +4734,7 @@ async function \u5904\u7406gRPC\u8BF7\u6C42(request, yourUUID, \u53CD\u4EE3\u4E0
                   \u6728\u9A6CUDP\u4E0A\u4E0B\u6587.\u76EE\u6807\u4E3B\u673A = hostname;
                   \u6728\u9A6CUDP\u4E0A\u4E0B\u6587.\u76EE\u6807\u7AEF\u53E3 = port;
                   if (\u6728\u9A6CUDP\u4E0A\u4E0B\u6587.\u53CD\u4EE3\u5730\u5740) await \u8F6C\u53D1\u6728\u9A6CUDP\u6570\u636E(\u9996\u5305bytes, grpcBridge, \u6728\u9A6CUDP\u4E0A\u4E0B\u6587, request);
-                  else if (\u6709\u6548\u6570\u636E\u957F\u5EA6(rawClientData) > 0) await \u8F6C\u53D1\u6728\u9A6CUDP\u6570\u636E(rawClientData, grpcBridge, \u6728\u9A6CUDP\u4E0A\u4E0B\u6587, request);
+                  else if (\u6709\u6548\u6570\u636E\u957F\u5EA62(rawClientData) > 0) await \u8F6C\u53D1\u6728\u9A6CUDP\u6570\u636E(rawClientData, grpcBridge, \u6728\u9A6CUDP\u4E0A\u4E0B\u6587, request);
                 } else {
                   await forwardataTCP(hostname, port, rawClientData, grpcBridge, null, remoteConnWrapper, yourUUID, request, \u53CD\u4EE3\u4E0A\u4E0B\u6587, true, \u9996\u5305bytes);
                 }
@@ -5780,7 +4919,7 @@ async function \u5904\u7406WS\u8BF7\u6C42(request, yourUUID, url, \u53CD\u4EE3\u
   }
   serverSock.binaryType = "arraybuffer";
   let remoteConnWrapper = { socket: null, connectingPromise: null, retryConnect: null, downlinkDrain: Promise.resolve() };
-  const \u5931\u6548\u8FDC\u7AEF\u8FDE\u63A5 = () => \u5931\u6548TCP\u8FDE\u63A5\u4E16\u4EE3(remoteConnWrapper);
+  const \u5931\u6548\u8FDC\u7AEF\u8FDE\u63A5 = () => \u5931\u6548TCP\u8FDE\u63A5\u4E16\u4EE32(remoteConnWrapper);
   let isDnsQuery = false;
   let \u5224\u65AD\u662F\u5426\u662F\u6728\u9A6C = null;
   const \u6728\u9A6CUDP\u4E0A\u4E0B\u6587 = { \u7F13\u5B58: new Uint8Array(0), \u53CD\u4EE3\u5730\u5740: \u53CD\u4EE3\u4E0A\u4E0B\u6587.\u6728\u9A6C\u53CD\u4EE3\u5730\u5740 };
@@ -5831,7 +4970,7 @@ async function \u5904\u7406WS\u8BF7\u6C42(request, yourUUID, url, \u53CD\u4EE3\u
     WS\u672C\u5730\u6D4B\u901F\u56DE\u5305Socket = \u56DE\u5305Socket;
     WS\u672C\u5730\u6D4B\u901F\u8BF7\u6C42\u7F13\u5B58 = new Uint8Array(0);
     WS\u672C\u5730\u6D4B\u901F\u9996\u5305\u54CD\u5E94\u5934 = respHeader;
-    if (\u6709\u6548\u6570\u636E\u957F\u5EA6(\u9996\u8BF7\u6C42\u6570\u636E) > 0) await \u5904\u7406WS\u672C\u5730\u6D4B\u901F\u6570\u636E(\u9996\u8BF7\u6C42\u6570\u636E);
+    if (\u6709\u6548\u6570\u636E\u957F\u5EA62(\u9996\u8BF7\u6C42\u6570\u636E) > 0) await \u5904\u7406WS\u672C\u5730\u6D4B\u901F\u6570\u636E(\u9996\u8BF7\u6C42\u6570\u636E);
   };
   const \u91CA\u653E\u8FDC\u7AEF\u5199\u5165\u5668 = () => {
     if (\u8FDC\u7AEF\u5199\u5165\u5668) {
@@ -6159,7 +5298,7 @@ async function \u5904\u7406WS\u8BF7\u6C42(request, yourUUID, url, \u53CD\u4EE3\u
         \u6728\u9A6CUDP\u4E0A\u4E0B\u6587.\u76EE\u6807\u4E3B\u673A = hostname;
         \u6728\u9A6CUDP\u4E0A\u4E0B\u6587.\u76EE\u6807\u7AEF\u53E3 = port;
         if (\u6728\u9A6CUDP\u4E0A\u4E0B\u6587.\u53CD\u4EE3\u5730\u5740) return \u8F6C\u53D1\u6728\u9A6CUDP\u6570\u636E(\u5F53\u524D\u5757\u5B57\u8282 || \u6570\u636E\u8F6CUint8Array(chunk), serverSock, \u6728\u9A6CUDP\u4E0A\u4E0B\u6587, request);
-        if (\u6709\u6548\u6570\u636E\u957F\u5EA6(rawClientData) > 0) return \u8F6C\u53D1\u6728\u9A6CUDP\u6570\u636E(rawClientData, serverSock, \u6728\u9A6CUDP\u4E0A\u4E0B\u6587, request);
+        if (\u6709\u6548\u6570\u636E\u957F\u5EA62(rawClientData) > 0) return \u8F6C\u53D1\u6728\u9A6CUDP\u6570\u636E(rawClientData, serverSock, \u6728\u9A6CUDP\u4E0A\u4E0B\u6587, request);
         return;
       }
       await forwardataTCP(hostname, port, rawClientData, serverSock, null, remoteConnWrapper, yourUUID, request, \u53CD\u4EE3\u4E0A\u4E0B\u6587, true, \u5F53\u524D\u5757\u5B57\u8282 || \u6570\u636E\u8F6CUint8Array(chunk));
@@ -6214,7 +5353,7 @@ async function \u5904\u7406WS\u8BF7\u6C42(request, yourUUID, url, \u53CD\u4EE3\u
   };
   const \u5165\u961FWS\u663E\u5F0F\u4F20\u8F93 = (data) => {
     if (WS\u663E\u5F0F\u4F20\u8F93\u505C\u6B62\u63A5\u6536 || WS\u663E\u5F0F\u4F20\u8F93\u5931\u8D25) return;
-    const chunkSize = Math.max(0, \u6709\u6548\u6570\u636E\u957F\u5EA6(data));
+    const chunkSize = Math.max(0, \u6709\u6548\u6570\u636E\u957F\u5EA62(data));
     const nextBytes = WS\u663E\u5F0F\u961F\u5217\u5B57\u8282 + chunkSize;
     const nextItems = WS\u663E\u5F0F\u961F\u5217\u6761\u76EE + 1;
     if (nextBytes > \u4E0A\u884C\u961F\u5217\u6700\u5927\u5B57\u8282 || nextItems > \u4E0A\u884C\u961F\u5217\u6700\u5927\u6761\u76EE) {
@@ -6264,6 +5403,875 @@ async function \u5904\u7406WS\u8BF7\u6C42(request, yourUUID, url, \u53CD\u4EE3\u
     }
   }
   return new Response(null, { status: 101, webSocket: clientSock, headers: { "Sec-WebSocket-Extensions": "" } });
+}
+
+// src/utils/hash.js
+async function MD5MD5(\u6587\u672C) {
+  const \u7F16\u7801\u5668 = new TextEncoder();
+  const \u7B2C\u4E00\u6B21\u5341\u516D\u8FDB\u5236 = MD5\u8F6C\u5341\u516D\u8FDB\u5236(\u7F16\u7801\u5668.encode(\u6587\u672C));
+  const \u7B2C\u4E8C\u6B21\u5341\u516D\u8FDB\u5236 = MD5\u8F6C\u5341\u516D\u8FDB\u5236(\u7F16\u7801\u5668.encode(\u7B2C\u4E00\u6B21\u5341\u516D\u8FDB\u5236.slice(7, 27)));
+  return \u7B2C\u4E8C\u6B21\u5341\u516D\u8FDB\u5236.toLowerCase();
+}
+
+// src/paths.js
+var \u5E38\u7528\u8DEF\u5F84\u5E38\u91CF = ["about", "account", "acg", "act", "activity", "ad", "ads", "ajax", "album", "albums", "anime", "api", "app", "apps", "archive", "archives", "article", "articles", "ask", "auth", "avatar", "bbs", "bd", "blog", "blogs", "book", "books", "bt", "buy", "cart", "category", "categories", "cb", "channel", "channels", "chat", "china", "city", "class", "classify", "clip", "clips", "club", "cn", "code", "collect", "collection", "comic", "comics", "community", "company", "config", "contact", "content", "course", "courses", "cp", "data", "detail", "details", "dh", "directory", "discount", "discuss", "dl", "dload", "doc", "docs", "document", "documents", "doujin", "download", "downloads", "drama", "edu", "en", "ep", "episode", "episodes", "event", "events", "f", "faq", "favorite", "favourites", "favs", "feedback", "file", "files", "film", "films", "forum", "forums", "friend", "friends", "game", "games", "gif", "go", "go.html", "go.php", "group", "groups", "help", "home", "hot", "htm", "html", "image", "images", "img", "index", "info", "intro", "item", "items", "ja", "jp", "jump", "jump.html", "jump.php", "jumping", "knowledge", "lang", "lesson", "lessons", "lib", "library", "link", "links", "list", "live", "lives", "m", "mag", "magnet", "mall", "manhua", "map", "member", "members", "message", "messages", "mobile", "movie", "movies", "music", "my", "new", "news", "note", "novel", "novels", "online", "order", "out", "out.html", "out.php", "outbound", "p", "page", "pages", "pay", "payment", "pdf", "photo", "photos", "pic", "pics", "picture", "pictures", "play", "player", "playlist", "post", "posts", "product", "products", "program", "programs", "project", "qa", "question", "rank", "ranking", "read", "readme", "redirect", "redirect.html", "redirect.php", "reg", "register", "res", "resource", "retrieve", "sale", "search", "season", "seasons", "section", "seller", "series", "service", "services", "setting", "settings", "share", "shop", "show", "shows", "site", "soft", "sort", "source", "special", "star", "stars", "static", "stock", "store", "stream", "streaming", "streams", "student", "study", "tag", "tags", "task", "teacher", "team", "tech", "temp", "test", "thread", "tool", "tools", "topic", "topics", "torrent", "trade", "travel", "tv", "txt", "type", "u", "upload", "uploads", "url", "urls", "user", "users", "v", "version", "videos", "view", "vip", "vod", "watch", "web", "wenku", "wiki", "work", "www", "zh", "zh-cn", "zh-tw", "zip"];
+function \u968F\u673A\u8DEF\u5F84(\u5B8C\u6574\u8282\u70B9\u8DEF\u5F84 = "/") {
+  const \u968F\u673A\u6570 = Math.floor(Math.random() * 3 + 1);
+  const \u6D17\u724C = \u5E38\u7528\u8DEF\u5F84\u5E38\u91CF.slice();
+  for (let i = 0; i < \u968F\u673A\u6570; i++) {
+    const j = i + Math.floor(Math.random() * (\u6D17\u724C.length - i));
+    [\u6D17\u724C[i], \u6D17\u724C[j]] = [\u6D17\u724C[j], \u6D17\u724C[i]];
+  }
+  const \u968F\u673A\u8DEF\u5F842 = \u6D17\u724C.slice(0, \u968F\u673A\u6570).join("/");
+  if (\u5B8C\u6574\u8282\u70B9\u8DEF\u5F84 === "/") return `/${\u968F\u673A\u8DEF\u5F842}`;
+  else return `/${\u968F\u673A\u8DEF\u5F842 + \u5B8C\u6574\u8282\u70B9\u8DEF\u5F84.replace("/?", "?")}`;
+}
+function \u66FF\u6362\u661F\u53F7\u4E3A\u968F\u673A\u5B57\u7B26(\u5185\u5BB9) {
+  if (typeof \u5185\u5BB9 !== "string" || !\u5185\u5BB9.includes("*")) return \u5185\u5BB9;
+  const \u5B57\u7B26\u96C6 = "abcdefghijklmnopqrstuvwxyz0123456789";
+  return \u5185\u5BB9.replace(/\*/g, () => {
+    let s = "";
+    for (let i = 0; i < Math.floor(Math.random() * 14) + 3; i++) s += \u5B57\u7B26\u96C6[Math.floor(Math.random() * \u5B57\u7B26\u96C6.length)];
+    return s;
+  });
+}
+
+// src/subscription.js
+function base64SecretEncode(plaintext, secret) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(plaintext);
+  const key = encoder.encode(secret);
+  const mixed = new Uint8Array(data.length);
+  for (let i = 0; i < data.length; i++) {
+    mixed[i] = data[i] ^ key[i % key.length];
+  }
+  let binary = "";
+  for (let i = 0; i < mixed.length; i++) {
+    binary += String.fromCharCode(mixed[i]);
+  }
+  return btoa(binary);
+}
+function base64SecretDecode(encoded, secret) {
+  const binary = atob(encoded);
+  const mixed = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    mixed[i] = binary.charCodeAt(i);
+  }
+  const encoder = new TextEncoder();
+  const key = encoder.encode(secret);
+  const data = new Uint8Array(mixed.length);
+  for (let i = 0; i < mixed.length; i++) {
+    data[i] = mixed[i] ^ key[i % key.length];
+  }
+  const decoder = new TextDecoder();
+  return decoder.decode(data);
+}
+function \u83B7\u53D6\u4F20\u8F93\u534F\u8BAE\u914D\u7F6E(\u914D\u7F6E = {}) {
+  const \u662FgRPC = \u914D\u7F6E.\u4F20\u8F93\u534F\u8BAE === "grpc";
+  const { \u5934: \u672C\u673APadding\u5934, \u952E: \u672C\u673APadding\u952E } = \u83B7\u53D6\u53C9HTTPPadding\u6807\u8BC6(\u914D\u7F6E.UUID);
+  const \u53C9\u6DF7\u6DC6JSON = {
+    "xPaddingObfsMode": true,
+    "xPaddingMethod": "tokenish",
+    "xPaddingPlacement": "queryInHeader",
+    "xPaddingHeader": \u672C\u673APadding\u5934,
+    "xPaddingKey": \u672C\u673APadding\u952E
+  };
+  return {
+    type: \u662FgRPC ? \u914D\u7F6E.gRPC\u6A21\u5F0F === "multi" ? "grpc&mode=multi" : "grpc&mode=gun" : \u914D\u7F6E.\u4F20\u8F93\u534F\u8BAE === "xhttp" ? `xhttp&mode=stream-one&extra=${encodeURIComponent(JSON.stringify(\u53C9\u6DF7\u6DC6JSON))}` : "ws",
+    \u8DEF\u5F84\u5B57\u6BB5\u540D: \u662FgRPC ? "serviceName" : "path",
+    \u57DF\u540D\u5B57\u6BB5\u540D: \u662FgRPC ? "authority" : "host"
+  };
+}
+function \u83B7\u53D6\u4F20\u8F93\u8DEF\u5F84\u53C2\u6570\u503C(\u914D\u7F6E = {}, \u8282\u70B9\u8DEF\u5F84 = "/", \u4F5C\u4E3A\u4F18\u9009\u8BA2\u9605\u751F\u6210\u5668 = false) {
+  const \u8DEF\u5F84\u503C = \u4F5C\u4E3A\u4F18\u9009\u8BA2\u9605\u751F\u6210\u5668 ? "/" : \u914D\u7F6E.\u968F\u673A\u8DEF\u5F84 ? \u968F\u673A\u8DEF\u5F84(\u8282\u70B9\u8DEF\u5F84) : \u8282\u70B9\u8DEF\u5F84;
+  if (\u914D\u7F6E.\u4F20\u8F93\u534F\u8BAE !== "grpc") return \u8DEF\u5F84\u503C;
+  return \u8DEF\u5F84\u503C.split("?")[0] || "/";
+}
+function Clash\u8BA2\u9605\u914D\u7F6E\u6587\u4EF6\u70ED\u8865\u4E01(Clash_\u539F\u59CB\u8BA2\u9605\u5185\u5BB9, config_JSON2 = {}) {
+  const uuid = config_JSON2?.UUID || null;
+  const ECH\u542F\u7528 = Boolean(config_JSON2?.ECH);
+  const HOSTS = Array.isArray(config_JSON2?.HOSTS) ? [...config_JSON2.HOSTS] : [];
+  const ECH_SNI = config_JSON2?.ECHConfig?.SNI || null;
+  const ECH_DNS = config_JSON2?.ECHConfig?.DNS;
+  const \u9700\u8981\u5904\u7406ECH = Boolean(uuid && ECH\u542F\u7528);
+  const gRPCUserAgent = typeof config_JSON2?.gRPCUserAgent === "string" && config_JSON2.gRPCUserAgent.trim() ? config_JSON2.gRPCUserAgent.trim() : null;
+  const \u9700\u8981\u5904\u7406gRPC = config_JSON2?.\u4F20\u8F93\u534F\u8BAE === "grpc" && Boolean(gRPCUserAgent);
+  const gRPCUserAgentYAML = gRPCUserAgent ? JSON.stringify(gRPCUserAgent) : null;
+  let clash_yaml = Clash_\u539F\u59CB\u8BA2\u9605\u5185\u5BB9.replace(/mode:\s*Rule\b/g, "mode: rule");
+  const baseDnsBlock = `dns:
+  enable: true
+  default-nameserver:
+    - 223.5.5.5
+    - 119.29.29.29
+    - 114.114.114.114
+  use-hosts: true
+  nameserver:
+    - https://sm2.doh.pub/dns-query
+    - https://dns.alidns.com/dns-query
+  fallback:
+    - 8.8.4.4
+    - 208.67.220.220
+  fallback-filter:
+    geoip: true
+    geoip-code: CN
+    ipcidr:
+      - 240.0.0.0/4
+      - 127.0.0.1/32
+      - 0.0.0.0/32
+    domain:
+      - '+.google.com'
+      - '+.facebook.com'
+      - '+.youtube.com'
+`;
+  const \u6DFB\u52A0InlineGrpcUserAgent = (text) => text.replace(/grpc-opts:\s*\{([\s\S]*?)\}/i, (all, inner) => {
+    if (/grpc-user-agent\s*:/i.test(inner)) return all;
+    let content = inner.trim();
+    if (content.endsWith(",")) content = content.slice(0, -1).trim();
+    const patchedContent = content ? `${content}, grpc-user-agent: ${gRPCUserAgentYAML}` : `grpc-user-agent: ${gRPCUserAgentYAML}`;
+    return `grpc-opts: {${patchedContent}}`;
+  });
+  const \u5339\u914D\u5230gRPC\u7F51\u7EDC = (text) => /(?:^|[,{])\s*network:\s*(?:"grpc"|'grpc'|grpc)(?=\s*(?:[,}\n#]|$))/mi.test(text);
+  const \u83B7\u53D6\u4EE3\u7406\u7C7B\u578B = (nodeText) => nodeText.match(/type:\s*(\w+)/)?.[1] || "vless";
+  const \u83B7\u53D6\u51ED\u636E\u503C = (nodeText, isFlowStyle) => {
+    const credentialField = \u83B7\u53D6\u4EE3\u7406\u7C7B\u578B(nodeText) === "trojan" ? "password" : "uuid";
+    const pattern = new RegExp(`${credentialField}:\\s*${isFlowStyle ? "([^,}\\n]+)" : "([^\\n]+)"}`);
+    return nodeText.match(pattern)?.[1]?.trim() || null;
+  };
+  const \u63D2\u5165NameserverPolicy = (yaml, hostsEntries) => {
+    if (/^\s{2}nameserver-policy:\s*(?:\n|$)/m.test(yaml)) {
+      return yaml.replace(/^(\s{2}nameserver-policy:\s*\n)/m, `$1${hostsEntries}
+`);
+    }
+    const lines2 = yaml.split("\n");
+    let dnsBlockEndIndex = -1;
+    let inDnsBlock = false;
+    for (let i2 = 0; i2 < lines2.length; i2++) {
+      const line = lines2[i2];
+      if (/^dns:\s*$/.test(line)) {
+        inDnsBlock = true;
+        continue;
+      }
+      if (inDnsBlock && /^[a-zA-Z]/.test(line)) {
+        dnsBlockEndIndex = i2;
+        break;
+      }
+    }
+    const nameserverPolicyBlock = `  nameserver-policy:
+${hostsEntries}`;
+    if (dnsBlockEndIndex !== -1) lines2.splice(dnsBlockEndIndex, 0, nameserverPolicyBlock);
+    else lines2.push(nameserverPolicyBlock);
+    return lines2.join("\n");
+  };
+  const \u6DFB\u52A0Flow\u683C\u5F0FgRPCUserAgent = (nodeText) => {
+    if (!\u5339\u914D\u5230gRPC\u7F51\u7EDC(nodeText) || /grpc-user-agent\s*:/i.test(nodeText)) return nodeText;
+    if (/grpc-opts:\s*\{/i.test(nodeText)) return \u6DFB\u52A0InlineGrpcUserAgent(nodeText);
+    return nodeText.replace(/\}(\s*)$/, `, grpc-opts: {grpc-user-agent: ${gRPCUserAgentYAML}}}$1`);
+  };
+  const \u6DFB\u52A0Block\u683C\u5F0FgRPCUserAgent = (nodeLines, topLevelIndent) => {
+    const \u9876\u7EA7\u7F29\u8FDB = " ".repeat(topLevelIndent);
+    let grpcOptsIndex = -1;
+    for (let idx = 0; idx < nodeLines.length; idx++) {
+      const line = nodeLines[idx];
+      if (!line.trim()) continue;
+      const indent = line.search(/\S/);
+      if (indent !== topLevelIndent) continue;
+      if (/^\s*grpc-opts:\s*(?:#.*)?$/.test(line) || /^\s*grpc-opts:\s*\{.*\}\s*(?:#.*)?$/.test(line)) {
+        grpcOptsIndex = idx;
+        break;
+      }
+    }
+    if (grpcOptsIndex === -1) {
+      let insertIndex = -1;
+      for (let j = nodeLines.length - 1; j >= 0; j--) {
+        if (nodeLines[j].trim()) {
+          insertIndex = j;
+          break;
+        }
+      }
+      if (insertIndex >= 0) nodeLines.splice(insertIndex + 1, 0, `${\u9876\u7EA7\u7F29\u8FDB}grpc-opts:`, `${\u9876\u7EA7\u7F29\u8FDB}  grpc-user-agent: ${gRPCUserAgentYAML}`);
+      return nodeLines;
+    }
+    const grpcLine = nodeLines[grpcOptsIndex];
+    if (/^\s*grpc-opts:\s*\{.*\}\s*(?:#.*)?$/.test(grpcLine)) {
+      if (!/grpc-user-agent\s*:/i.test(grpcLine)) nodeLines[grpcOptsIndex] = \u6DFB\u52A0InlineGrpcUserAgent(grpcLine);
+      return nodeLines;
+    }
+    let blockEndIndex = nodeLines.length;
+    let \u5B50\u7EA7\u7F29\u8FDB = topLevelIndent + 2;
+    let \u5DF2\u6709gRPCUserAgent = false;
+    for (let idx = grpcOptsIndex + 1; idx < nodeLines.length; idx++) {
+      const line = nodeLines[idx];
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      const indent = line.search(/\S/);
+      if (indent <= topLevelIndent) {
+        blockEndIndex = idx;
+        break;
+      }
+      if (indent > topLevelIndent && \u5B50\u7EA7\u7F29\u8FDB === topLevelIndent + 2) \u5B50\u7EA7\u7F29\u8FDB = indent;
+      if (/^grpc-user-agent\s*:/.test(trimmed)) {
+        \u5DF2\u6709gRPCUserAgent = true;
+        break;
+      }
+    }
+    if (!\u5DF2\u6709gRPCUserAgent) nodeLines.splice(blockEndIndex, 0, `${" ".repeat(\u5B50\u7EA7\u7F29\u8FDB)}grpc-user-agent: ${gRPCUserAgentYAML}`);
+    return nodeLines;
+  };
+  const \u6DFB\u52A0Block\u683C\u5F0FECHOpts = (nodeLines, topLevelIndent) => {
+    let insertIndex = -1;
+    for (let j = nodeLines.length - 1; j >= 0; j--) {
+      if (nodeLines[j].trim()) {
+        insertIndex = j;
+        break;
+      }
+    }
+    if (insertIndex < 0) return nodeLines;
+    const indent = " ".repeat(topLevelIndent);
+    const echOptsLines = [`${indent}ech-opts:`, `${indent}  enable: true`];
+    if (ECH_SNI) echOptsLines.push(`${indent}  query-server-name: ${ECH_SNI}`);
+    nodeLines.splice(insertIndex + 1, 0, ...echOptsLines);
+    return nodeLines;
+  };
+  if (!/^dns:\s*(?:\n|$)/m.test(clash_yaml)) clash_yaml = baseDnsBlock + clash_yaml;
+  if (ECH_SNI && !HOSTS.includes(ECH_SNI)) HOSTS.push(ECH_SNI);
+  if (ECH\u542F\u7528 && HOSTS.length > 0) {
+    const hostsEntries = HOSTS.map((host) => `    "${host}": ${ECH_DNS ? ECH_DNS : ""}`).join("\n");
+    clash_yaml = \u63D2\u5165NameserverPolicy(clash_yaml, hostsEntries);
+  }
+  if (!\u9700\u8981\u5904\u7406ECH && !\u9700\u8981\u5904\u7406gRPC) return clash_yaml;
+  const lines = clash_yaml.split("\n");
+  const processedLines = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    const trimmedLine = line.trim();
+    if (trimmedLine.startsWith("- {")) {
+      let fullNode = line;
+      let braceCount = (line.match(/\{/g) || []).length - (line.match(/\}/g) || []).length;
+      while (braceCount > 0 && i + 1 < lines.length) {
+        i++;
+        fullNode += "\n" + lines[i];
+        braceCount += (lines[i].match(/\{/g) || []).length - (lines[i].match(/\}/g) || []).length;
+      }
+      if (\u9700\u8981\u5904\u7406gRPC) fullNode = \u6DFB\u52A0Flow\u683C\u5F0FgRPCUserAgent(fullNode);
+      if (\u9700\u8981\u5904\u7406ECH && \u83B7\u53D6\u51ED\u636E\u503C(fullNode, true) === uuid.trim()) {
+        fullNode = fullNode.replace(/\}(\s*)$/, `, ech-opts: {enable: true${ECH_SNI ? `, query-server-name: ${ECH_SNI}` : ""}}}$1`);
+      }
+      processedLines.push(fullNode);
+      i++;
+    } else if (trimmedLine.startsWith("- name:")) {
+      let nodeLines = [line];
+      let baseIndent = line.search(/\S/);
+      let topLevelIndent = baseIndent + 2;
+      i++;
+      while (i < lines.length) {
+        const nextLine = lines[i];
+        const nextTrimmed = nextLine.trim();
+        if (!nextTrimmed) {
+          nodeLines.push(nextLine);
+          i++;
+          break;
+        }
+        const nextIndent = nextLine.search(/\S/);
+        if (nextIndent <= baseIndent && nextTrimmed.startsWith("- ")) {
+          break;
+        }
+        if (nextIndent < baseIndent && nextTrimmed) {
+          break;
+        }
+        nodeLines.push(nextLine);
+        i++;
+      }
+      let nodeText = nodeLines.join("\n");
+      if (\u9700\u8981\u5904\u7406gRPC && \u5339\u914D\u5230gRPC\u7F51\u7EDC(nodeText)) {
+        nodeLines = \u6DFB\u52A0Block\u683C\u5F0FgRPCUserAgent(nodeLines, topLevelIndent);
+        nodeText = nodeLines.join("\n");
+      }
+      if (\u9700\u8981\u5904\u7406ECH && \u83B7\u53D6\u51ED\u636E\u503C(nodeText, false) === uuid.trim()) nodeLines = \u6DFB\u52A0Block\u683C\u5F0FECHOpts(nodeLines, topLevelIndent);
+      processedLines.push(...nodeLines);
+    } else {
+      processedLines.push(line);
+      i++;
+    }
+  }
+  return processedLines.join("\n");
+}
+async function Singbox\u8BA2\u9605\u914D\u7F6E\u6587\u4EF6\u70ED\u8865\u4E01(SingBox_\u539F\u59CB\u8BA2\u9605\u5185\u5BB9, config_JSON2 = {}) {
+  const uuid = config_JSON2?.UUID || null;
+  const fingerprint = config_JSON2?.Fingerprint || "chrome";
+  const ECH\u542F\u7528 = Boolean(config_JSON2?.ECH);
+  const ECH_SNI = config_JSON2?.ECHConfig?.SNI || "cloudflare-ech.com";
+  const sb_json_text = SingBox_\u539F\u59CB\u8BA2\u9605\u5185\u5BB9.replace("1.1.1.1", "8.8.8.8").replace("1.0.0.1", "8.8.4.4");
+  try {
+    const config = JSON.parse(sb_json_text);
+    const \u6570\u7EC4\u5316 = (value) => value === void 0 || value === null ? [] : Array.isArray(value) ? value : [value];
+    const \u786E\u4FDDRoute = () => config.route = config.route && typeof config.route === "object" ? config.route : {};
+    const \u83B7\u53D6DNS\u89C4\u5219\u670D\u52A1\u5668 = (rule) => rule && typeof rule === "object" && !Array.isArray(rule) && typeof rule.server === "string" ? rule.server : null;
+    const \u6DFB\u52A0\u89C4\u5219\u96C6 = (type, code) => {
+      if (!code || typeof code !== "string") return null;
+      const route = \u786E\u4FDDRoute(), tag = `${type}-${code}`, ruleSet = Array.isArray(route.rule_set) ? route.rule_set : \u6570\u7EC4\u5316(route.rule_set);
+      if (!ruleSet.some((item) => item?.tag === tag)) {
+        const legacyOptions = type === "geoip" ? route.geoip : route.geosite;
+        ruleSet.push({ tag, type: "remote", format: "binary", url: `https://raw.githubusercontent.com/SagerNet/sing-${type}/rule-set/${tag}.srs`, ...legacyOptions?.download_detour ? { download_detour: legacyOptions.download_detour } : {} });
+        config.experimental = config.experimental && typeof config.experimental === "object" ? config.experimental : {};
+        config.experimental.cache_file = config.experimental.cache_file && typeof config.experimental.cache_file === "object" ? config.experimental.cache_file : {};
+        config.experimental.cache_file.enabled ??= true;
+      }
+      route.rule_set = ruleSet;
+      return tag;
+    };
+    const \u8FC1\u79FB\u89C4\u5219\u96C6\u5B57\u6BB5 = (rule) => {
+      if (!rule || typeof rule !== "object" || Array.isArray(rule)) return rule;
+      if (rule.type === "logical" && Array.isArray(rule.rules)) {
+        rule.rules = rule.rules.map(\u8FC1\u79FB\u89C4\u5219\u96C6\u5B57\u6BB5);
+        return rule;
+      }
+      const tags = [];
+      for (const geoip of \u6570\u7EC4\u5316(rule.geoip)) {
+        if (typeof geoip !== "string") continue;
+        if (geoip.toLowerCase() === "private") rule.ip_is_private = true;
+        else tags.push(\u6DFB\u52A0\u89C4\u5219\u96C6("geoip", geoip));
+      }
+      for (const sourceGeoip of \u6570\u7EC4\u5316(rule.source_geoip)) {
+        if (typeof sourceGeoip !== "string") continue;
+        tags.push(\u6DFB\u52A0\u89C4\u5219\u96C6("geoip", sourceGeoip));
+        rule.rule_set_ip_cidr_match_source = true;
+      }
+      for (const geosite of \u6570\u7EC4\u5316(rule.geosite)) if (typeof geosite === "string") tags.push(\u6DFB\u52A0\u89C4\u5219\u96C6("geosite", geosite));
+      if (tags.length) rule.rule_set = [...new Set([...\u6570\u7EC4\u5316(rule.rule_set), ...tags].filter(Boolean))];
+      delete rule.geoip;
+      delete rule.source_geoip;
+      delete rule.geosite;
+      return rule;
+    };
+    const \u8FC1\u79FBDNS\u89C4\u5219 = (rule, rcodeServerMap) => {
+      rule = \u8FC1\u79FB\u89C4\u5219\u96C6\u5B57\u6BB5(rule);
+      if (!rule || typeof rule !== "object" || Array.isArray(rule)) return rule;
+      if (rule.type === "logical" && Array.isArray(rule.rules)) {
+        rule.rules = rule.rules.map((childRule) => \u8FC1\u79FBDNS\u89C4\u5219(childRule, rcodeServerMap));
+        return rule;
+      }
+      const serverTag = \u83B7\u53D6DNS\u89C4\u5219\u670D\u52A1\u5668(rule);
+      if (serverTag && rcodeServerMap.has(serverTag)) {
+        for (const key of ["server", "strategy", "disable_cache", "rewrite_ttl", "client_subnet", "timeout"]) delete rule[key];
+        rule.action = "predefined";
+        rule.rcode = rcodeServerMap.get(serverTag);
+      } else if (serverTag && !rule.action) rule.action = "route";
+      return rule;
+    };
+    if (Array.isArray(config.inbounds)) {
+      for (const inbound of config.inbounds) {
+        if (!inbound || typeof inbound !== "object" || inbound.type !== "tun") continue;
+        for (const migration of [
+          { targetKey: "address", sourceKeys: ["inet4_address", "inet6_address"] },
+          { targetKey: "route_address", sourceKeys: ["inet4_route_address", "inet6_route_address"] },
+          { targetKey: "route_exclude_address", sourceKeys: ["inet4_route_exclude_address", "inet6_route_exclude_address"] }
+        ]) {
+          const values = \u6570\u7EC4\u5316(inbound[migration.targetKey]);
+          for (const sourceKey of migration.sourceKeys) values.push(...\u6570\u7EC4\u5316(inbound[sourceKey]));
+          if (values.length) inbound[migration.targetKey] = [...new Set(values)];
+          for (const sourceKey of migration.sourceKeys) delete inbound[sourceKey];
+        }
+        if (inbound.tag) {
+          const addedRules = [];
+          if (inbound.domain_strategy) addedRules.push({ inbound: inbound.tag, action: "resolve", strategy: inbound.domain_strategy });
+          if (inbound.sniff) {
+            const sniffRule = { inbound: inbound.tag, action: "sniff" };
+            if (inbound.sniff_timeout) sniffRule.timeout = inbound.sniff_timeout;
+            addedRules.push(sniffRule);
+          }
+          if (addedRules.length) {
+            const route = \u786E\u4FDDRoute();
+            route.rules = [...addedRules, ...\u6570\u7EC4\u5316(route.rules)];
+          }
+        }
+        delete inbound.sniff;
+        delete inbound.sniff_timeout;
+        delete inbound.domain_strategy;
+      }
+    }
+    if (config?.route && typeof config.route === "object" && Array.isArray(config.route.rules)) {
+      const \u4FEE\u8865\u8DEF\u7531\u89C4\u5219 = (rule) => {
+        rule = \u8FC1\u79FB\u89C4\u5219\u96C6\u5B57\u6BB5(rule);
+        if (rule?.type === "logical" && Array.isArray(rule.rules)) rule.rules = rule.rules.map(\u4FEE\u8865\u8DEF\u7531\u89C4\u5219);
+        else if (rule && typeof rule === "object" && !Array.isArray(rule) && rule.outbound && !rule.action) rule.action = "route";
+        return rule;
+      };
+      config.route.rules = config.route.rules.map(\u4FEE\u8865\u8DEF\u7531\u89C4\u5219);
+    }
+    const dns = config?.dns;
+    if (dns && typeof dns === "object") {
+      const legacyFakeIP = dns.fakeip && typeof dns.fakeip === "object" ? dns.fakeip : null;
+      const rcodeServerMap = /* @__PURE__ */ new Map();
+      const DNS\u5730\u5740\u534F\u8BAE\u7C7B\u578B = { "tcp:": "tcp", "udp:": "udp", "tls:": "tls", "quic:": "quic", "https:": "https", "h3:": "h3" };
+      const RCode\u6620\u5C04 = { success: "NOERROR", format_error: "FORMERR", server_failure: "SERVFAIL", name_error: "NXDOMAIN", not_implemented: "NOTIMP", refused: "REFUSED" };
+      let hasFakeIPServer = false;
+      if (Array.isArray(dns.servers)) {
+        const migratedServers = [];
+        for (const originalServer of dns.servers) {
+          if (!originalServer || typeof originalServer !== "object" || Array.isArray(originalServer)) {
+            migratedServers.push(originalServer);
+            continue;
+          }
+          const server = { ...originalServer };
+          let parsedAddress = null, parsedRCode = "", rawAddress = typeof server.address === "string" ? server.address.trim() : "";
+          if (rawAddress) {
+            const lowerAddress = rawAddress.toLowerCase();
+            if (lowerAddress === "fakeip") parsedAddress = { type: "fakeip" };
+            else if (lowerAddress === "local") parsedAddress = { type: "local" };
+            else if (lowerAddress.startsWith("rcode://")) {
+              parsedAddress = { type: "rcode" };
+              parsedRCode = rawAddress.slice("rcode://".length).toLowerCase();
+            } else if (lowerAddress.startsWith("dhcp://")) {
+              const dhcpInterface = rawAddress.slice("dhcp://".length);
+              parsedAddress = dhcpInterface && dhcpInterface.toLowerCase() !== "auto" ? { type: "dhcp", interface: dhcpInterface } : { type: "dhcp" };
+            } else {
+              try {
+                const addressURL = new URL(rawAddress);
+                const type = DNS\u5730\u5740\u534F\u8BAE\u7C7B\u578B[addressURL.protocol.toLowerCase()];
+                if (type) {
+                  const parsedServer = addressURL.hostname?.startsWith("[") && addressURL.hostname.endsWith("]") ? addressURL.hostname.slice(1, -1) : addressURL.hostname;
+                  parsedAddress = {
+                    type,
+                    server: parsedServer || addressURL.host || rawAddress,
+                    ...addressURL.port ? { server_port: Number(addressURL.port) } : {},
+                    ...(type === "https" || type === "h3") && addressURL.pathname && addressURL.pathname !== "/dns-query" ? { path: addressURL.pathname } : {}
+                  };
+                }
+              } catch (_) {
+              }
+              if (!parsedAddress) parsedAddress = { type: "udp", server: rawAddress };
+            }
+          }
+          if (parsedAddress?.type === "rcode") {
+            const rcode = RCode\u6620\u5C04[parsedRCode] || "NOERROR";
+            if (typeof server.tag === "string" && server.tag) {
+              rcodeServerMap.set(server.tag, rcode);
+              rcodeServerMap.set(server.tag.startsWith("dns_") ? server.tag.slice(4) : `dns_${server.tag}`, rcode);
+            }
+            continue;
+          }
+          if (parsedAddress) {
+            delete server.address;
+            Object.assign(server, parsedAddress);
+          }
+          if (server.address_resolver !== void 0 && server.domain_resolver === void 0) server.domain_resolver = server.address_resolver;
+          if (server.address_strategy !== void 0 && server.domain_strategy === void 0) server.domain_strategy = server.address_strategy;
+          delete server.address_resolver;
+          delete server.address_strategy;
+          if (server.detour === "DIRECT") delete server.detour;
+          if (server.type === "fakeip") {
+            hasFakeIPServer = true;
+            if (legacyFakeIP) {
+              for (const key of ["inet4_range", "inet6_range"]) {
+                if (legacyFakeIP[key] !== void 0 && server[key] === void 0) server[key] = legacyFakeIP[key];
+              }
+            }
+          }
+          migratedServers.push(server);
+        }
+        dns.servers = migratedServers;
+      }
+      if (legacyFakeIP && !hasFakeIPServer && legacyFakeIP.enabled !== false) {
+        const fakeIPServer = { type: "fakeip", tag: "fakeip" };
+        for (const rule of Array.isArray(dns.rules) ? dns.rules : []) {
+          const serverTag = \u83B7\u53D6DNS\u89C4\u5219\u670D\u52A1\u5668(rule);
+          if (serverTag && serverTag.toLowerCase().includes("fakeip")) {
+            fakeIPServer.tag = serverTag;
+            break;
+          }
+        }
+        for (const key of ["inet4_range", "inet6_range"]) {
+          if (legacyFakeIP[key] !== void 0) fakeIPServer[key] = legacyFakeIP[key];
+        }
+        if (Array.isArray(dns.servers)) dns.servers.push(fakeIPServer);
+        else dns.servers = [fakeIPServer];
+      }
+      if (Array.isArray(dns.rules)) {
+        const migratedRules = [];
+        for (const rule of dns.rules) {
+          const serverTag = \u83B7\u53D6DNS\u89C4\u5219\u670D\u52A1\u5668(rule);
+          const outbound = \u6570\u7EC4\u5316(rule?.outbound);
+          const DNS\u8DEF\u7531\u9009\u9879\u5B57\u6BB5 = /* @__PURE__ */ new Set(["outbound", "server", "action", "strategy", "disable_cache", "rewrite_ttl", "client_subnet", "timeout"]);
+          const isOutboundAnyDNSRule = rule && typeof rule === "object" && !Array.isArray(rule) && rule.type !== "logical" && serverTag && outbound.includes("any") && Object.keys(rule).every((key) => DNS\u8DEF\u7531\u9009\u9879\u5B57\u6BB5.has(key));
+          if (isOutboundAnyDNSRule) {
+            const route = \u786E\u4FDDRoute();
+            if (route.default_domain_resolver === void 0) {
+              const resolver = { server: serverTag };
+              for (const key of ["strategy", "disable_cache", "rewrite_ttl", "client_subnet", "timeout"]) {
+                if (rule[key] !== void 0) resolver[key] = rule[key];
+              }
+              route.default_domain_resolver = Object.keys(resolver).length === 1 ? resolver.server : resolver;
+            }
+            continue;
+          }
+          migratedRules.push(\u8FC1\u79FBDNS\u89C4\u5219(rule, rcodeServerMap));
+        }
+        dns.rules = migratedRules;
+      }
+      delete dns.fakeip;
+      delete dns.independent_cache;
+    }
+    if (config?.route && typeof config.route === "object") {
+      delete config.route.geoip;
+      delete config.route.geosite;
+    }
+    if (config?.ntp?.detour === "DIRECT") delete config.ntp.detour;
+    if (Array.isArray(config.outbounds)) {
+      const outboundTags = new Set(config.outbounds.map((outbound) => outbound?.tag).filter(Boolean));
+      const \u5F15\u7528REJECT = (value) => value === "REJECT" || value && typeof value === "object" && (Array.isArray(value) ? value.some(\u5F15\u7528REJECT) : Object.values(value).some(\u5F15\u7528REJECT));
+      if (!outboundTags.has("REJECT") && \u5F15\u7528REJECT({ outbounds: config.outbounds, route: config.route })) config.outbounds.push({ type: "block", tag: "REJECT" });
+    }
+    if (uuid) {
+      config.outbounds?.forEach((outbound) => {
+        if (outbound.uuid && outbound.uuid === uuid || outbound.password && outbound.password === uuid) {
+          if (!outbound.tls) {
+            outbound.tls = { enabled: true };
+          }
+          if (fingerprint) {
+            outbound.tls.utls = {
+              enabled: true,
+              fingerprint
+            };
+          }
+          if (ECH\u542F\u7528) {
+            outbound.tls.ech = {
+              enabled: true,
+              query_server_name: ECH_SNI
+              // 等待 1.13.0+ 版本上线
+              //config: `-----BEGIN ECH CONFIGS-----\n${ech_config}\n-----END ECH CONFIGS-----`
+            };
+          }
+        }
+      });
+    }
+    return JSON.stringify(config, null, 2);
+  } catch (e) {
+    log("Singbox\u70ED\u8865\u4E01\u6267\u884C\u5931\u8D25:", e);
+    return JSON.stringify(JSON.parse(sb_json_text), null, 2);
+  }
+}
+function Surge\u8BA2\u9605\u914D\u7F6E\u6587\u4EF6\u70ED\u8865\u4E01(content, url, config_JSON2) {
+  const \u6BCF\u884C\u5185\u5BB9 = content.includes("\r\n") ? content.split("\r\n") : content.split("\n");
+  const \u5B8C\u6574\u8282\u70B9\u8DEF\u5F84 = config_JSON2.\u968F\u673A\u8DEF\u5F84 ? \u968F\u673A\u8DEF\u5F84(config_JSON2.\u5B8C\u6574\u8282\u70B9\u8DEF\u5F84) : config_JSON2.\u5B8C\u6574\u8282\u70B9\u8DEF\u5F84;
+  let \u8F93\u51FA\u5185\u5BB9 = "";
+  for (let x of \u6BCF\u884C\u5185\u5BB9) {
+    if (x.includes("= trojan,") && !x.includes("ws=true") && !x.includes("ws-path=")) {
+      const host = x.split("sni=")[1].split(",")[0];
+      const \u5907\u6539\u5185\u5BB9 = `sni=${host}, skip-cert-verify=${config_JSON2.\u8DF3\u8FC7\u8BC1\u4E66\u9A8C\u8BC1}`;
+      const \u6B63\u786E\u5185\u5BB9 = `sni=${host}, skip-cert-verify=${config_JSON2.\u8DF3\u8FC7\u8BC1\u4E66\u9A8C\u8BC1}, ws=true, ws-path=${\u5B8C\u6574\u8282\u70B9\u8DEF\u5F84.replace(/,/g, "%2C")}, ws-headers=Host:"${host}"`;
+      \u8F93\u51FA\u5185\u5BB9 += x.replace(new RegExp(\u5907\u6539\u5185\u5BB9, "g"), \u6B63\u786E\u5185\u5BB9).replace("[", "").replace("]", "") + "\n";
+    } else {
+      \u8F93\u51FA\u5185\u5BB9 += x + "\n";
+    }
+  }
+  \u8F93\u51FA\u5185\u5BB9 = `#!MANAGED-CONFIG ${url} interval=${config_JSON2.\u4F18\u9009\u8BA2\u9605\u751F\u6210.SUBUpdateTime * 60 * 60} strict=false` + \u8F93\u51FA\u5185\u5BB9.substring(\u8F93\u51FA\u5185\u5BB9.indexOf("\n"));
+  return \u8F93\u51FA\u5185\u5BB9;
+}
+async function \u8BF7\u6C42\u65E5\u5FD7\u8BB0\u5F55(env, request, \u8BBF\u95EEIP, \u8BF7\u6C42\u7C7B\u578B = "Get_SUB", config_JSON2, \u662F\u5426\u5199\u5165KV\u65E5\u5FD7 = true) {
+  try {
+    const \u5F53\u524D\u65F6\u95F4 = /* @__PURE__ */ new Date();
+    const \u65E5\u5FD7\u5185\u5BB9 = { TYPE: \u8BF7\u6C42\u7C7B\u578B, IP: \u8BBF\u95EEIP, ASN: `AS${request.cf.asn || "0"} ${request.cf.asOrganization || "Unknown"}`, CC: `${request.cf.country || "N/A"} ${request.cf.city || "N/A"}`, URL: request.url, UA: request.headers.get("User-Agent") || "Unknown", TIME: \u5F53\u524D\u65F6\u95F4.getTime() };
+    if (config_JSON2.TG.\u542F\u7528) {
+      try {
+        const TG_TXT = await env.KV.get("tg.json");
+        const TG_JSON = JSON.parse(TG_TXT);
+        if (TG_JSON?.BotToken && TG_JSON?.ChatID) {
+          const \u8BF7\u6C42\u65F6\u95F4 = new Date(\u65E5\u5FD7\u5185\u5BB9.TIME).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" });
+          const \u8BF7\u6C42URL = new URL(\u65E5\u5FD7\u5185\u5BB9.URL);
+          const msg = `<b>#${config_JSON2.\u4F18\u9009\u8BA2\u9605\u751F\u6210.SUBNAME} \u65E5\u5FD7\u901A\u77E5</b>
+
+\u{1F4CC} <b>\u7C7B\u578B\uFF1A</b>#${\u65E5\u5FD7\u5185\u5BB9.TYPE}
+\u{1F310} <b>IP\uFF1A</b><code>${\u65E5\u5FD7\u5185\u5BB9.IP}</code>
+\u{1F4CD} <b>\u4F4D\u7F6E\uFF1A</b>${\u65E5\u5FD7\u5185\u5BB9.CC}
+\u{1F3E2} <b>ASN\uFF1A</b>${\u65E5\u5FD7\u5185\u5BB9.ASN}
+\u{1F517} <b>\u57DF\u540D\uFF1A</b><code>${\u8BF7\u6C42URL.host}</code>
+\u{1F50D} <b>\u8DEF\u5F84\uFF1A</b><code>${\u8BF7\u6C42URL.pathname + \u8BF7\u6C42URL.search}</code>
+\u{1F916} <b>UA\uFF1A</b><code>${\u65E5\u5FD7\u5185\u5BB9.UA}</code>
+\u{1F4C5} <b>\u65F6\u95F4\uFF1A</b>${\u8BF7\u6C42\u65F6\u95F4}
+${config_JSON2.CF.Usage.success ? `\u{1F4CA} <b>\u8BF7\u6C42\u7528\u91CF\uFF1A</b>${config_JSON2.CF.Usage.total}/${config_JSON2.CF.Usage.max} <b>${(config_JSON2.CF.Usage.total / config_JSON2.CF.Usage.max * 100).toFixed(2)}%</b>
+` : ""}`;
+          await fetch(`https://api.telegram.org/bot${TG_JSON.BotToken}/sendMessage?chat_id=${TG_JSON.ChatID}&parse_mode=HTML&text=${encodeURIComponent(msg)}`, {
+            method: "GET",
+            headers: {
+              "Accept": "text/html,application/xhtml+xml,application/xml;",
+              "Accept-Encoding": "gzip, deflate, br",
+              "User-Agent": \u65E5\u5FD7\u5185\u5BB9.UA || "Unknown"
+            }
+          });
+        }
+      } catch (error) {
+        log(`\u8BFB\u53D6tg.json\u51FA\u9519: ${error.message}`);
+      }
+    }
+    \u662F\u5426\u5199\u5165KV\u65E5\u5FD7 = ["1", "true"].includes(env.OFF_LOG) ? false : \u662F\u5426\u5199\u5165KV\u65E5\u5FD7;
+    if (!\u662F\u5426\u5199\u5165KV\u65E5\u5FD7) return;
+    let \u65E5\u5FD7\u6570\u7EC4 = [];
+    const \u73B0\u6709\u65E5\u5FD7 = await env.KV.get("log.json"), KV\u5BB9\u91CF\u9650\u5236 = 4;
+    if (\u73B0\u6709\u65E5\u5FD7) {
+      try {
+        \u65E5\u5FD7\u6570\u7EC4 = JSON.parse(\u73B0\u6709\u65E5\u5FD7);
+        if (!Array.isArray(\u65E5\u5FD7\u6570\u7EC4)) {
+          \u65E5\u5FD7\u6570\u7EC4 = [\u65E5\u5FD7\u5185\u5BB9];
+        } else if (\u8BF7\u6C42\u7C7B\u578B !== "Get_SUB") {
+          const \u4E09\u5341\u5206\u949F\u524D\u65F6\u95F4\u6233 = \u5F53\u524D\u65F6\u95F4.getTime() - 30 * 60 * 1e3;
+          if (\u65E5\u5FD7\u6570\u7EC4.some((log2) => log2.TYPE !== "Get_SUB" && log2.IP === \u8BBF\u95EEIP && log2.URL === request.url && log2.UA === (request.headers.get("User-Agent") || "Unknown") && log2.TIME >= \u4E09\u5341\u5206\u949F\u524D\u65F6\u95F4\u6233)) return;
+          \u65E5\u5FD7\u6570\u7EC4.push(\u65E5\u5FD7\u5185\u5BB9);
+          while (JSON.stringify(\u65E5\u5FD7\u6570\u7EC4, null, 2).length > KV\u5BB9\u91CF\u9650\u5236 * 1024 * 1024 && \u65E5\u5FD7\u6570\u7EC4.length > 0) \u65E5\u5FD7\u6570\u7EC4.shift();
+        } else {
+          \u65E5\u5FD7\u6570\u7EC4.push(\u65E5\u5FD7\u5185\u5BB9);
+          while (JSON.stringify(\u65E5\u5FD7\u6570\u7EC4, null, 2).length > KV\u5BB9\u91CF\u9650\u5236 * 1024 * 1024 && \u65E5\u5FD7\u6570\u7EC4.length > 0) \u65E5\u5FD7\u6570\u7EC4.shift();
+        }
+      } catch (e) {
+        \u65E5\u5FD7\u6570\u7EC4 = [\u65E5\u5FD7\u5185\u5BB9];
+      }
+    } else {
+      \u65E5\u5FD7\u6570\u7EC4 = [\u65E5\u5FD7\u5185\u5BB9];
+    }
+    await env.KV.put("log.json", JSON.stringify(\u65E5\u5FD7\u6570\u7EC4, null, 2));
+  } catch (error) {
+    console.error(`\u65E5\u5FD7\u8BB0\u5F55\u5931\u8D25: ${error.message}`);
+  }
+}
+async function \u8BFB\u53D6config_JSON(env, hostname, userID, UA = "Mozilla/5.0", \u91CD\u7F6E\u914D\u7F6E = false) {
+  let \u5C40\u90E8\u914D\u7F6E = null;
+  const _p = \u7279\u5F81\u7801\u5B57\u5178[0];
+  const host = hostname, Ali_DoH = "https://dns.alidns.com/dns-query", ECH_SNI = "cloudflare-ech.com", \u5360\u4F4D\u7B26 = "{{IP:PORT}}", \u521D\u59CB\u5316\u5F00\u59CB\u65F6\u95F4 = performance.now(), \u9ED8\u8BA4\u914D\u7F6EJSON = {
+    TIME: (/* @__PURE__ */ new Date()).toISOString(),
+    HOST: host,
+    HOSTS: [hostname],
+    UUID: userID,
+    PATH: "/",
+    \u534F\u8BAE\u7C7B\u578B: "vless",
+    \u4F20\u8F93\u534F\u8BAE: "ws",
+    gRPC\u6A21\u5F0F: "gun",
+    gRPCUserAgent: UA,
+    \u8DF3\u8FC7\u8BC1\u4E66\u9A8C\u8BC1: false,
+    \u542F\u75280RTT: false,
+    TLS\u5206\u7247: null,
+    \u968F\u673A\u8DEF\u5F84: false,
+    ECH: false,
+    ECHConfig: {
+      DNS: Ali_DoH,
+      SNI: ECH_SNI
+    },
+    SS: {
+      \u52A0\u5BC6\u65B9\u5F0F: "aes-128-gcm",
+      TLS: true
+    },
+    Fingerprint: "chrome",
+    \u4F18\u9009\u8BA2\u9605\u751F\u6210: {
+      local: true,
+      // true: 基于本地的优选地址  false: 优选订阅生成器
+      \u672C\u5730IP\u5E93: {
+        \u968F\u673AIP: true,
+        // 当 随机IP 为true时生效，启用随机IP的数量，否则使用KV内的ADD.txt
+        \u968F\u673A\u6570\u91CF: 16,
+        \u6307\u5B9A\u7AEF\u53E3: -1
+      },
+      SUB: null,
+      SUBNAME: "edgetunnel",
+      SUBUpdateTime: 3,
+      // 订阅更新时间（小时）
+      TOKEN: await MD5MD5(hostname + userID)
+    },
+    \u8BA2\u9605\u8F6C\u6362\u914D\u7F6E: {
+      SUBAPI: `https://SUBAPI.${\u7279\u5F81\u7801\u5B57\u5178[1]}ssss.net`,
+      SUBCONFIG: `https://raw.githubusercontent.com/${\u7279\u5F81\u7801\u5B57\u5178[1]}/ACL4SSR/refs/heads/main/Clash/config/ACL4SSR_Online_Mini_MultiMode_CF.ini`,
+      SUBEMOJI: false,
+      SUBLIST: false,
+      //仅输出节点信息
+      UDP: false,
+      // 启用 UDP
+      XUDP: false,
+      // 启用 XUDP
+      TLS13: false,
+      // 启用 TLS 1.3
+      APPEND_TYPE: false,
+      // 插入节点类型
+      SORT: false
+      // 基础节点排序
+    },
+    \u53CD\u4EE3: {
+      [_p]: "auto",
+      SOCKS5: {
+        \u542F\u7528: null,
+        \u5168\u5C40: false,
+        \u8D26\u53F7: "",
+        \u767D\u540D\u5355: SOCKS5\u767D\u540D\u5355
+      },
+      \u8DEF\u5F84\u6A21\u677F: {
+        [_p]: "proxyip=" + \u5360\u4F4D\u7B26,
+        SOCKS5: {
+          \u5168\u5C40: "socks5://" + \u5360\u4F4D\u7B26,
+          \u6807\u51C6: "socks5=" + \u5360\u4F4D\u7B26
+        },
+        HTTP: {
+          \u5168\u5C40: "http://" + \u5360\u4F4D\u7B26,
+          \u6807\u51C6: "http=" + \u5360\u4F4D\u7B26
+        },
+        HTTPS: {
+          \u5168\u5C40: "https://" + \u5360\u4F4D\u7B26,
+          \u6807\u51C6: "https=" + \u5360\u4F4D\u7B26
+        },
+        TURN: {
+          \u5168\u5C40: "turn://" + \u5360\u4F4D\u7B26,
+          \u6807\u51C6: "turn=" + \u5360\u4F4D\u7B26
+        },
+        SSTP: {
+          \u5168\u5C40: "sstp://" + \u5360\u4F4D\u7B26,
+          \u6807\u51C6: "sstp=" + \u5360\u4F4D\u7B26
+        }
+      }
+    },
+    TG: {
+      \u542F\u7528: false,
+      BotToken: null,
+      ChatID: null
+    },
+    CF: {
+      Email: null,
+      GlobalAPIKey: null,
+      AccountID: null,
+      APIToken: null,
+      UsageAPI: null,
+      Usage: {
+        success: false,
+        pages: 0,
+        workers: 0,
+        total: 0,
+        max: 1e5
+      }
+    }
+  };
+  try {
+    let configJSON = await env.KV.get("config.json");
+    if (!configJSON || \u91CD\u7F6E\u914D\u7F6E == true) {
+      await env.KV.put("config.json", JSON.stringify(\u9ED8\u8BA4\u914D\u7F6EJSON, null, 2));
+      \u5C40\u90E8\u914D\u7F6E = \u9ED8\u8BA4\u914D\u7F6EJSON;
+    } else {
+      \u5C40\u90E8\u914D\u7F6E = JSON.parse(configJSON);
+    }
+  } catch (error) {
+    log(`\u8BFB\u53D6\u5C40\u90E8\u914D\u7F6E\u51FA\u9519: ${error.message}`);
+    \u5C40\u90E8\u914D\u7F6E = \u9ED8\u8BA4\u914D\u7F6EJSON;
+  }
+  if (!\u5C40\u90E8\u914D\u7F6E.\u8BA2\u9605\u8F6C\u6362\u914D\u7F6E.SUBLIST) \u5C40\u90E8\u914D\u7F6E.\u8BA2\u9605\u8F6C\u6362\u914D\u7F6E.SUBLIST = false;
+  if (!\u5C40\u90E8\u914D\u7F6E.\u8BA2\u9605\u8F6C\u6362\u914D\u7F6E.UDP) \u5C40\u90E8\u914D\u7F6E.\u8BA2\u9605\u8F6C\u6362\u914D\u7F6E.UDP = false;
+  if (!\u5C40\u90E8\u914D\u7F6E.\u8BA2\u9605\u8F6C\u6362\u914D\u7F6E.XUDP) \u5C40\u90E8\u914D\u7F6E.\u8BA2\u9605\u8F6C\u6362\u914D\u7F6E.XUDP = false;
+  if (!\u5C40\u90E8\u914D\u7F6E.\u8BA2\u9605\u8F6C\u6362\u914D\u7F6E.TLS13) \u5C40\u90E8\u914D\u7F6E.\u8BA2\u9605\u8F6C\u6362\u914D\u7F6E.TLS13 = false;
+  if (!\u5C40\u90E8\u914D\u7F6E.\u8BA2\u9605\u8F6C\u6362\u914D\u7F6E.APPEND_TYPE) \u5C40\u90E8\u914D\u7F6E.\u8BA2\u9605\u8F6C\u6362\u914D\u7F6E.APPEND_TYPE = false;
+  if (!\u5C40\u90E8\u914D\u7F6E.\u8BA2\u9605\u8F6C\u6362\u914D\u7F6E.SORT) \u5C40\u90E8\u914D\u7F6E.\u8BA2\u9605\u8F6C\u6362\u914D\u7F6E.SORT = false;
+  if (!\u5C40\u90E8\u914D\u7F6E.gRPCUserAgent) \u5C40\u90E8\u914D\u7F6E.gRPCUserAgent = UA;
+  \u5C40\u90E8\u914D\u7F6E.HOST = host;
+  if (!\u5C40\u90E8\u914D\u7F6E.HOSTS) \u5C40\u90E8\u914D\u7F6E.HOSTS = [hostname];
+  if (env.HOST) \u5C40\u90E8\u914D\u7F6E.HOSTS = (await \u6574\u7406\u6210\u6570\u7EC4(env.HOST)).map((h) => h.toLowerCase().replace(/^https?:\/\//, "").split("/")[0].split(":")[0]);
+  \u5C40\u90E8\u914D\u7F6E.UUID = userID;
+  if (!\u5C40\u90E8\u914D\u7F6E.\u968F\u673A\u8DEF\u5F84) \u5C40\u90E8\u914D\u7F6E.\u968F\u673A\u8DEF\u5F84 = false;
+  if (!\u5C40\u90E8\u914D\u7F6E.\u542F\u75280RTT) \u5C40\u90E8\u914D\u7F6E.\u542F\u75280RTT = false;
+  if (env.PATH) \u5C40\u90E8\u914D\u7F6E.PATH = env.PATH.startsWith("/") ? env.PATH : "/" + env.PATH;
+  else if (!\u5C40\u90E8\u914D\u7F6E.PATH) \u5C40\u90E8\u914D\u7F6E.PATH = "/";
+  if (!\u5C40\u90E8\u914D\u7F6E.gRPC\u6A21\u5F0F) \u5C40\u90E8\u914D\u7F6E.gRPC\u6A21\u5F0F = "gun";
+  if (!\u5C40\u90E8\u914D\u7F6E.SS) \u5C40\u90E8\u914D\u7F6E.SS = { \u52A0\u5BC6\u65B9\u5F0F: "aes-128-gcm", TLS: false };
+  if (!\u5C40\u90E8\u914D\u7F6E.\u53CD\u4EE3.\u8DEF\u5F84\u6A21\u677F?.[_p]) {
+    \u5C40\u90E8\u914D\u7F6E.\u53CD\u4EE3.\u8DEF\u5F84\u6A21\u677F = {
+      [_p]: "proxyip=" + \u5360\u4F4D\u7B26,
+      SOCKS5: {
+        \u5168\u5C40: "socks5://" + \u5360\u4F4D\u7B26,
+        \u6807\u51C6: "socks5=" + \u5360\u4F4D\u7B26
+      },
+      HTTP: {
+        \u5168\u5C40: "http://" + \u5360\u4F4D\u7B26,
+        \u6807\u51C6: "http=" + \u5360\u4F4D\u7B26
+      },
+      HTTPS: {
+        \u5168\u5C40: "https://" + \u5360\u4F4D\u7B26,
+        \u6807\u51C6: "https=" + \u5360\u4F4D\u7B26
+      },
+      TURN: {
+        \u5168\u5C40: "turn://" + \u5360\u4F4D\u7B26,
+        \u6807\u51C6: "turn=" + \u5360\u4F4D\u7B26
+      },
+      SSTP: {
+        \u5168\u5C40: "sstp://" + \u5360\u4F4D\u7B26,
+        \u6807\u51C6: "sstp=" + \u5360\u4F4D\u7B26
+      }
+    };
+  }
+  if (!\u5C40\u90E8\u914D\u7F6E.\u53CD\u4EE3.\u8DEF\u5F84\u6A21\u677F.HTTPS) \u5C40\u90E8\u914D\u7F6E.\u53CD\u4EE3.\u8DEF\u5F84\u6A21\u677F.HTTPS = { \u5168\u5C40: "https://" + \u5360\u4F4D\u7B26, \u6807\u51C6: "https=" + \u5360\u4F4D\u7B26 };
+  if (!\u5C40\u90E8\u914D\u7F6E.\u53CD\u4EE3.\u8DEF\u5F84\u6A21\u677F.TURN) \u5C40\u90E8\u914D\u7F6E.\u53CD\u4EE3.\u8DEF\u5F84\u6A21\u677F.TURN = { \u5168\u5C40: "turn://" + \u5360\u4F4D\u7B26, \u6807\u51C6: "turn=" + \u5360\u4F4D\u7B26 };
+  if (!\u5C40\u90E8\u914D\u7F6E.\u53CD\u4EE3.\u8DEF\u5F84\u6A21\u677F.SSTP) \u5C40\u90E8\u914D\u7F6E.\u53CD\u4EE3.\u8DEF\u5F84\u6A21\u677F.SSTP = { \u5168\u5C40: "sstp://" + \u5360\u4F4D\u7B26, \u6807\u51C6: "sstp=" + \u5360\u4F4D\u7B26 };
+  const \u4EE3\u7406\u914D\u7F6E = \u5C40\u90E8\u914D\u7F6E.\u53CD\u4EE3.\u8DEF\u5F84\u6A21\u677F[\u5C40\u90E8\u914D\u7F6E.\u53CD\u4EE3.SOCKS5.\u542F\u7528?.toUpperCase()];
+  let \u8DEF\u5F84\u53CD\u4EE3\u53C2\u6570 = "";
+  if (\u4EE3\u7406\u914D\u7F6E && \u5C40\u90E8\u914D\u7F6E.\u53CD\u4EE3.SOCKS5.\u8D26\u53F7) \u8DEF\u5F84\u53CD\u4EE3\u53C2\u6570 = (\u5C40\u90E8\u914D\u7F6E.\u53CD\u4EE3.SOCKS5.\u5168\u5C40 ? \u4EE3\u7406\u914D\u7F6E.\u5168\u5C40 : \u4EE3\u7406\u914D\u7F6E.\u6807\u51C6).replace(\u5360\u4F4D\u7B26, \u5C40\u90E8\u914D\u7F6E.\u53CD\u4EE3.SOCKS5.\u8D26\u53F7);
+  else if (\u5C40\u90E8\u914D\u7F6E.\u53CD\u4EE3[_p] !== "auto") \u8DEF\u5F84\u53CD\u4EE3\u53C2\u6570 = \u5C40\u90E8\u914D\u7F6E.\u53CD\u4EE3.\u8DEF\u5F84\u6A21\u677F[_p].replace(\u5360\u4F4D\u7B26, \u5C40\u90E8\u914D\u7F6E.\u53CD\u4EE3[_p]);
+  let \u53CD\u4EE3\u67E5\u8BE2\u53C2\u6570 = "";
+  if (\u8DEF\u5F84\u53CD\u4EE3\u53C2\u6570.includes("?")) {
+    const [\u53CD\u4EE3\u8DEF\u5F84\u90E8\u5206, \u53CD\u4EE3\u67E5\u8BE2\u90E8\u5206] = \u8DEF\u5F84\u53CD\u4EE3\u53C2\u6570.split("?");
+    \u8DEF\u5F84\u53CD\u4EE3\u53C2\u6570 = \u53CD\u4EE3\u8DEF\u5F84\u90E8\u5206;
+    \u53CD\u4EE3\u67E5\u8BE2\u53C2\u6570 = \u53CD\u4EE3\u67E5\u8BE2\u90E8\u5206;
+  }
+  \u5C40\u90E8\u914D\u7F6E.PATH = \u5C40\u90E8\u914D\u7F6E.PATH.replace(\u8DEF\u5F84\u53CD\u4EE3\u53C2\u6570, "").replace("//", "/");
+  const normalizedPath = \u5C40\u90E8\u914D\u7F6E.PATH === "/" ? "" : \u5C40\u90E8\u914D\u7F6E.PATH.replace(/\/+(?=\?|$)/, "").replace(/\/+$/, "");
+  const [\u8DEF\u5F84\u90E8\u5206, ...\u67E5\u8BE2\u6570\u7EC4] = normalizedPath.split("?");
+  const \u67E5\u8BE2\u90E8\u5206 = \u67E5\u8BE2\u6570\u7EC4.length ? "?" + \u67E5\u8BE2\u6570\u7EC4.join("?") : "";
+  const \u6700\u7EC8\u67E5\u8BE2\u90E8\u5206 = \u53CD\u4EE3\u67E5\u8BE2\u53C2\u6570 ? \u67E5\u8BE2\u90E8\u5206 ? \u67E5\u8BE2\u90E8\u5206 + "&" + \u53CD\u4EE3\u67E5\u8BE2\u53C2\u6570 : "?" + \u53CD\u4EE3\u67E5\u8BE2\u53C2\u6570 : \u67E5\u8BE2\u90E8\u5206;
+  \u5C40\u90E8\u914D\u7F6E.\u5B8C\u6574\u8282\u70B9\u8DEF\u5F84 = (\u8DEF\u5F84\u90E8\u5206 || "/") + (\u8DEF\u5F84\u90E8\u5206 && \u8DEF\u5F84\u53CD\u4EE3\u53C2\u6570 ? "/" : "") + \u8DEF\u5F84\u53CD\u4EE3\u53C2\u6570 + \u6700\u7EC8\u67E5\u8BE2\u90E8\u5206 + (\u5C40\u90E8\u914D\u7F6E.\u542F\u75280RTT ? (\u6700\u7EC8\u67E5\u8BE2\u90E8\u5206 ? "&" : "?") + "ed=2560" : "");
+  if (!\u5C40\u90E8\u914D\u7F6E.TLS\u5206\u7247 && \u5C40\u90E8\u914D\u7F6E.TLS\u5206\u7247 !== null) \u5C40\u90E8\u914D\u7F6E.TLS\u5206\u7247 = null;
+  const TLS\u5206\u7247\u53C2\u6570 = \u5C40\u90E8\u914D\u7F6E.TLS\u5206\u7247 == "Shadowrocket" ? `&fragment=${encodeURIComponent("1,40-60,30-50,tlshello")}` : \u5C40\u90E8\u914D\u7F6E.TLS\u5206\u7247 == "Happ" ? `&fragment=${encodeURIComponent("3,1,tlshello")}` : "";
+  if (!\u5C40\u90E8\u914D\u7F6E.Fingerprint) \u5C40\u90E8\u914D\u7F6E.Fingerprint = "chrome";
+  if (!\u5C40\u90E8\u914D\u7F6E.ECH) \u5C40\u90E8\u914D\u7F6E.ECH = false;
+  if (!\u5C40\u90E8\u914D\u7F6E.ECHConfig) \u5C40\u90E8\u914D\u7F6E.ECHConfig = { DNS: Ali_DoH, SNI: ECH_SNI };
+  const ECHLINK\u53C2\u6570 = \u5C40\u90E8\u914D\u7F6E.ECH ? `&ech=${encodeURIComponent((\u5C40\u90E8\u914D\u7F6E.ECHConfig.SNI ? \u5C40\u90E8\u914D\u7F6E.ECHConfig.SNI + "+" : "") + \u5C40\u90E8\u914D\u7F6E.ECHConfig.DNS)}` : "";
+  const { type: \u4F20\u8F93\u534F\u8BAE, \u8DEF\u5F84\u5B57\u6BB5\u540D, \u57DF\u540D\u5B57\u6BB5\u540D } = \u83B7\u53D6\u4F20\u8F93\u534F\u8BAE\u914D\u7F6E(\u5C40\u90E8\u914D\u7F6E);
+  const \u4F20\u8F93\u8DEF\u5F84\u53C2\u6570\u503C = \u83B7\u53D6\u4F20\u8F93\u8DEF\u5F84\u53C2\u6570\u503C(\u5C40\u90E8\u914D\u7F6E, \u5C40\u90E8\u914D\u7F6E.\u5B8C\u6574\u8282\u70B9\u8DEF\u5F84);
+  \u5C40\u90E8\u914D\u7F6E.LINK = \u5C40\u90E8\u914D\u7F6E.\u534F\u8BAE\u7C7B\u578B === "ss" ? `${\u5C40\u90E8\u914D\u7F6E.\u534F\u8BAE\u7C7B\u578B}://${btoa(\u5C40\u90E8\u914D\u7F6E.SS.\u52A0\u5BC6\u65B9\u5F0F + ":" + userID)}@${host}:${\u5C40\u90E8\u914D\u7F6E.SS.TLS ? "443" : "80"}?plugin=v2${encodeURIComponent(`ray-plugin;mode=websocket;host=${host};path=${(\u5C40\u90E8\u914D\u7F6E.\u5B8C\u6574\u8282\u70B9\u8DEF\u5F84.includes("?") ? \u5C40\u90E8\u914D\u7F6E.\u5B8C\u6574\u8282\u70B9\u8DEF\u5F84.replace("?", "?enc=" + \u5C40\u90E8\u914D\u7F6E.SS.\u52A0\u5BC6\u65B9\u5F0F + "&") : \u5C40\u90E8\u914D\u7F6E.\u5B8C\u6574\u8282\u70B9\u8DEF\u5F84 + "?enc=" + \u5C40\u90E8\u914D\u7F6E.SS.\u52A0\u5BC6\u65B9\u5F0F) + (\u5C40\u90E8\u914D\u7F6E.SS.TLS ? ";tls" : "")};mux=0`) + ECHLINK\u53C2\u6570}#${encodeURIComponent(\u5C40\u90E8\u914D\u7F6E.\u4F18\u9009\u8BA2\u9605\u751F\u6210.SUBNAME)}` : `${\u5C40\u90E8\u914D\u7F6E.\u534F\u8BAE\u7C7B\u578B}://${userID}@${host}:443?security=tls&type=${\u4F20\u8F93\u534F\u8BAE + ECHLINK\u53C2\u6570}&${\u57DF\u540D\u5B57\u6BB5\u540D}=${host}&fp=${\u5C40\u90E8\u914D\u7F6E.Fingerprint}&sni=${host}&${\u8DEF\u5F84\u5B57\u6BB5\u540D}=${encodeURIComponent(\u4F20\u8F93\u8DEF\u5F84\u53C2\u6570\u503C) + TLS\u5206\u7247\u53C2\u6570}&encryption=none#${encodeURIComponent(\u5C40\u90E8\u914D\u7F6E.\u4F18\u9009\u8BA2\u9605\u751F\u6210.SUBNAME)}`;
+  \u5C40\u90E8\u914D\u7F6E.\u4F18\u9009\u8BA2\u9605\u751F\u6210.TOKEN = await MD5MD5(hostname + userID);
+  const \u521D\u59CB\u5316TG_JSON = { BotToken: null, ChatID: null };
+  \u5C40\u90E8\u914D\u7F6E.TG = { \u542F\u7528: \u5C40\u90E8\u914D\u7F6E.TG.\u542F\u7528 ? \u5C40\u90E8\u914D\u7F6E.TG.\u542F\u7528 : false, ...\u521D\u59CB\u5316TG_JSON };
+  try {
+    const TG_TXT = await env.KV.get("tg.json");
+    if (!TG_TXT) {
+      await env.KV.put("tg.json", JSON.stringify(\u521D\u59CB\u5316TG_JSON, null, 2));
+    } else {
+      const TG_JSON = JSON.parse(TG_TXT);
+      \u5C40\u90E8\u914D\u7F6E.TG.ChatID = TG_JSON.ChatID ? TG_JSON.ChatID : null;
+      \u5C40\u90E8\u914D\u7F6E.TG.BotToken = TG_JSON.BotToken ? \u63A9\u7801\u654F\u611F\u4FE1\u606F(TG_JSON.BotToken) : null;
+    }
+  } catch (error) {
+    log(`\u8BFB\u53D6tg.json\u51FA\u9519: ${error.message}`);
+  }
+  const \u521D\u59CB\u5316CF_JSON = { Email: null, GlobalAPIKey: null, AccountID: null, APIToken: null, UsageAPI: null };
+  \u5C40\u90E8\u914D\u7F6E.CF = { ...\u521D\u59CB\u5316CF_JSON, Usage: { success: false, pages: 0, workers: 0, total: 0, max: 1e5 } };
+  try {
+    const CF_TXT = await env.KV.get("cf.json");
+    if (!CF_TXT) {
+      await env.KV.put("cf.json", JSON.stringify(\u521D\u59CB\u5316CF_JSON, null, 2));
+    } else {
+      const CF_JSON = JSON.parse(CF_TXT);
+      if (CF_JSON.UsageAPI) {
+        try {
+          const response = await fetch(CF_JSON.UsageAPI);
+          const Usage = await response.json();
+          \u5C40\u90E8\u914D\u7F6E.CF.Usage = Usage;
+        } catch (err) {
+          console.error(`\u8BF7\u6C42 CF_JSON.UsageAPI \u5931\u8D25: ${err.message}`);
+        }
+      } else {
+        \u5C40\u90E8\u914D\u7F6E.CF.Email = CF_JSON.Email ? CF_JSON.Email : null;
+        \u5C40\u90E8\u914D\u7F6E.CF.GlobalAPIKey = CF_JSON.GlobalAPIKey ? \u63A9\u7801\u654F\u611F\u4FE1\u606F(CF_JSON.GlobalAPIKey) : null;
+        \u5C40\u90E8\u914D\u7F6E.CF.AccountID = CF_JSON.AccountID ? \u63A9\u7801\u654F\u611F\u4FE1\u606F(CF_JSON.AccountID) : null;
+        \u5C40\u90E8\u914D\u7F6E.CF.APIToken = CF_JSON.APIToken ? \u63A9\u7801\u654F\u611F\u4FE1\u606F(CF_JSON.APIToken) : null;
+        \u5C40\u90E8\u914D\u7F6E.CF.UsageAPI = null;
+        const Usage = await getCloudflareUsage(CF_JSON.Email, CF_JSON.GlobalAPIKey, CF_JSON.AccountID, CF_JSON.APIToken);
+        \u5C40\u90E8\u914D\u7F6E.CF.Usage = Usage;
+      }
+    }
+  } catch (error) {
+    console.error(`\u8BFB\u53D6cf.json\u51FA\u9519: ${error.message}`);
+  }
+  \u5C40\u90E8\u914D\u7F6E.\u52A0\u8F7D\u65F6\u95F4 = (performance.now() - \u521D\u59CB\u5316\u5F00\u59CB\u65F6\u95F4).toFixed(2) + "ms";
+  return \u5C40\u90E8\u914D\u7F6E;
 }
 
 // src/proxy-config.js

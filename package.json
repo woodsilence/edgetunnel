@@ -10,10 +10,11 @@
     "regenerate:check": "node scripts/pipeline.mjs --check",
     "preview": "node scripts/preview.mjs",
     "preview:html": "node scripts/gen-preview.mjs && node scripts/gen-preview-light.mjs",
-    "test": "npm run build && npm run test:md5 && npm run test:deep && npm run test:pages && npm run test:regress",
+    "test": "npm run build && npm run test:md5 && npm run test:deep && npm run test:pages && npm run test:arch && npm run test:regress",
     "test:md5": "node test/md5.mjs",
     "test:deep": "node test/deep.mjs",
     "test:pages": "node test/pages.mjs",
+    "test:arch": "node test/architecture.mjs",
     "test:regress": "node test/snapshot.mjs _worker.js ref/current.json && node scripts/verify.mjs",
     "baseline": "node test/snapshot.mjs _worker.js ref/baseline.json"
   },

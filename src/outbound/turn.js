@@ -5,37 +5,19 @@
  * 含消息完整性校验（`addTurnMessageIntegrity`，MD5-SHA1 的 MESSAGE-INTEGRITY）
  * 与 401 认证挑战处理（realm/realm + username/password）。
  *
- * 配套 `stripIPv6Brackets` / `isIPHostname` 等地址规范化工具。
+ * 地址规范化与超时工具已移至 `net/addr.js`，此处按需引入。
  *
- * ── 本模块导出 17 个符号，依赖 5 个内部模块 ──
+ * ── 本模块导出 12 个符号 ──
  */
 
-import { 有效数据长度 } from './../transport/xhttp.js';
+import { 有效数据长度 } from './../net/tcp.js';
+import { stripIPv6Brackets, isIPv4, withTimeout, CONNECT_TIMEOUT_MS } from './../net/addr.js';
 import { textEncoder, textDecoder } from './../net/tls.js';
 import { sstpConnect } from './sstp.js';
-import { DoH查询 } from './../subscription.js';
+import { DoH查询 } from './../net/dns.js';;
 import { 数据转Uint8Array, MD5计算字节, 拼接字节数据 } from './../utils/bytes.js';
 
-function stripIPv6Brackets(hostname = '') {
-	const host = String(hostname || '').trim();
-	return host.startsWith('[') && host.endsWith(']') ? host.slice(1, -1) : host;
-}
-
-function isIPHostname(hostname = '') {
-	const host = stripIPv6Brackets(hostname);
-	const ipv4Regex = /^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/;
-	if (ipv4Regex.test(host)) return true;
-	if (!host.includes(':')) return false;
-	try {
-		new URL(`http://[${host}]/`);
-		return true;
-	} catch (e) {
-		return false;
-	}
-}
-
 //////////////////////////////////////////////////turnConnect///////////////////////////////////////////////
-const CONNECT_TIMEOUT_MS = 9999;
 const TURN_STUN_MAGIC_COOKIE = new Uint8Array([0x21, 0x12, 0xa4, 0x42]);
 const TURN_STUN_TYPE = {
 	ALLOCATE_REQUEST: 0x0003, ALLOCATE_SUCCESS: 0x0103, ALLOCATE_ERROR: 0x0113,
@@ -48,23 +30,6 @@ const TURN_STUN_ATTR = {
 	XOR_PEER_ADDRESS: 0x0012, REALM: 0x0014, NONCE: 0x0015,
 	REQUESTED_TRANSPORT: 0x0019, CONNECTION_ID: 0x002a
 };
-
-async function withTimeout(promise, timeoutMs, message) {
-	let timer;
-	try {
-		return await Promise.race([
-			promise,
-			new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(message)), timeoutMs) })
-		]);
-	} finally {
-		clearTimeout(timer);
-	}
-}
-
-function isIPv4(value) {
-	const parts = String(value || '').split('.');
-	return parts.length === 4 && parts.every(part => /^\d{1,3}$/.test(part) && Number(part) >= 0 && Number(part) <= 255);
-}
 
 function turnStunPadding(length) {
 	return -length & 3;
@@ -307,5 +272,5 @@ async function turnConnect(proxy, targetHost, targetPort, TCP连接) {
 }
 //////////////////////////////////////////////////sstpConnect///////////////////////////////////////////////
 
-export { CONNECT_TIMEOUT_MS, TURN_STUN_MAGIC_COOKIE, TURN_STUN_TYPE, TURN_STUN_ATTR };
-export { stripIPv6Brackets, isIPHostname, withTimeout, isIPv4, turnStunPadding, createTurnStunAttribute, createTurnStunMessage, parseTurnErrorCode, randomTurnTransactionId, addTurnMessageIntegrity, readTurnStunMessage, writeTurnBytes, turnConnect };
+export { TURN_STUN_MAGIC_COOKIE, TURN_STUN_TYPE, TURN_STUN_ATTR };
+export { turnStunPadding, createTurnStunAttribute, createTurnStunMessage, parseTurnErrorCode, randomTurnTransactionId, addTurnMessageIntegrity, readTurnStunMessage, writeTurnBytes, turnConnect };

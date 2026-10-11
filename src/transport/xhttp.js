@@ -19,7 +19,7 @@ import { 魏烈思文本解码器, UUID字节匹配 } from './../protocol/vless.
 import { forwardataTCP, forwardataudp } from './../outbound/forward.js';
 import { closeSocketQuietly, 创建上行Grain合包流 } from './../stream.js';
 import { isSpeedTestSite, 构造本地204响应 } from './../speedtest.js';
-import { log } from './../logging.js';;
+import { log } from './../logging.js';
 import { sha224 } from './../web.js';
 
 const HPACKHuffman码长 = [
@@ -273,41 +273,6 @@ function 处理叉HTTPUDP请求(首包, reader, request, 反代上下文, respon
 	}), { status: 200, headers: responseHeaders });
 }
 
-function 有效数据长度(data) {
-	if (!data) return 0;
-	if (typeof data.byteLength === 'number') return data.byteLength;
-	if (typeof data.length === 'number') return data.length;
-	return 0;
-}
-
-function 失效TCP连接世代(remoteConnWrapper) {
-	if (!remoteConnWrapper) return;
-	remoteConnWrapper.generation = (Number.isInteger(remoteConnWrapper.generation) ? remoteConnWrapper.generation : 0) + 1;
-	const socket = remoteConnWrapper.socket;
-	remoteConnWrapper.socket = null;
-	remoteConnWrapper.downlinkController = null;
-	remoteConnWrapper.downlinkDrain = Promise.resolve();
-	try { socket?.close?.() } catch (e) { }
-}
-
-function 开始TCP连接世代(remoteConnWrapper) {
-	if (!Number.isInteger(remoteConnWrapper.generation)) remoteConnWrapper.generation = 0;
-	const generation = ++remoteConnWrapper.generation;
-	const previousSocket = remoteConnWrapper.socket;
-	remoteConnWrapper.socket = null;
-	const previousDownlink = remoteConnWrapper.downlinkController;
-	remoteConnWrapper.downlinkController = null;
-	const previousDrain = remoteConnWrapper.downlinkDrain || Promise.resolve();
-	let currentDrain;
-	try { currentDrain = previousDownlink?.停止并刷新?.() || Promise.resolve() }
-	catch (error) { currentDrain = Promise.reject(error) }
-	const downlinkDrain = Promise.all([previousDrain, currentDrain]);
-	// Installation awaits this promise; attach a handler immediately in case draining fails before dialing completes.
-	downlinkDrain.catch(() => { });
-	remoteConnWrapper.downlinkDrain = downlinkDrain;
-	try { previousSocket?.close?.() } catch (e) { }
-	return { generation, downlinkDrain };
-}
 
 async function 读取叉HTTP首包(reader, token) {
 	const decoder = 魏烈思文本解码器;
@@ -472,4 +437,4 @@ async function 读取叉HTTP首包(reader, token) {
 ///////////////////////////////////////////////////////////////////////gRPC传输数据///////////////////////////////////////////////
 
 export { HPACKHuffman码长, 叉HTTPBase62字符集 };
-export { 获取叉HTTPPadding标识, 计算HPACKHuffman字节长度, 提取叉HTTPPadding值, 校验叉HTTPPadding, 生成叉HTTPPadding串, 处理叉HTTP请求, 处理叉HTTPUDP请求, 有效数据长度, 失效TCP连接世代, 开始TCP连接世代, 读取叉HTTP首包 };
+export { 获取叉HTTPPadding标识, 计算HPACKHuffman字节长度, 提取叉HTTPPadding值, 校验叉HTTPPadding, 生成叉HTTPPadding串, 处理叉HTTP请求, 处理叉HTTPUDP请求, 读取叉HTTP首包 };

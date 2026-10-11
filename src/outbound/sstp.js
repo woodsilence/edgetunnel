@@ -9,8 +9,8 @@
  */
 
 import { textEncoder, textDecoder } from './../net/tls.js';
-import { stripIPv6Brackets, CONNECT_TIMEOUT_MS, withTimeout, isIPv4 } from './turn.js';
-import { DoH查询 } from './../subscription.js';
+import { stripIPv6Brackets, CONNECT_TIMEOUT_MS, withTimeout, isIPv4 } from './../net/addr.js';
+import { DoH查询 } from './../net/dns.js';;
 import { 数据转Uint8Array, 拼接字节数据 } from './../utils/bytes.js';
 
 const SSTP_TCP_MSS = 1400;

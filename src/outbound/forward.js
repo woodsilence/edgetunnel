@@ -20,14 +20,15 @@
 
 import { SOCKS5白名单, TCP并发拨号数, 反代并发拨号数, 预加载竞速拨号 } from './../state.js';
 import { 特征码字典 } from './../constants.js';
-import { 有效数据长度, 开始TCP连接世代 } from './../transport/xhttp.js';
-import { 连接木马反代, 提取木马反代握手数据 } from './../protocol/trojan.js';
+import { 有效数据长度, 失效TCP连接世代, 开始TCP连接世代 } from './../net/tcp.js';
+import { 连接木马反代, 提取木马反代握手数据 } from './../protocol/trojan-proxy.js';
 import { socks5Connect, httpConnect, httpsConnect } from './proxies.js';
-import { isIPHostname, isIPv4, turnConnect } from './turn.js';
+import { turnConnect } from './turn.js';
+import { isIPHostname, isIPv4 } from './../net/addr.js';
 import { sstpConnect } from './sstp.js';
 import { closeSocketQuietly, WebSocket发送并等待, connectStreams } from './../stream.js';
-import { DoH查询 } from './../subscription.js';
-import { log } from './../logging.js';;
+import { DoH查询 } from './../net/dns.js';
+import { log } from './../logging.js';
 import { 数据转Uint8Array } from './../utils/bytes.js';
 import { 解析地址端口 } from './../web.js';
 

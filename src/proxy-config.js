@@ -15,7 +15,7 @@
 
 import { 解析木马反代地址 } from './protocol/trojan.js';
 import { base64SecretDecode } from './subscription.js';
-import { log } from './logging.js';;
+import { log } from './logging.js';
 
 async function 反代参数获取(url, uuid, 默认反代IP = '', 默认反代兜底 = true) {
 	const { searchParams } = url;

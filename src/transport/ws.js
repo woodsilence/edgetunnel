@@ -17,14 +17,14 @@
  */
 
 import { WS早期数据最大字节 } from './../constants.js';
-import { 有效数据长度, 失效TCP连接世代 } from './xhttp.js';
+import { 有效数据长度, 失效TCP连接世代, 开始TCP连接世代 } from './../net/tcp.js';
 import { 解析木马请求, 转发木马UDP数据 } from './../protocol/trojan.js';
 import { 魏烈思文本解码器, UUID字节匹配, 解析魏烈思请求 } from './../protocol/vless.js';
 import { SS支持加密配置, SSAEAD标签长度, SS派生主密钥, SS派生会话密钥, SSAEAD加密, SSAEAD解密 } from './../protocol/shadowsocks.js';
 import { forwardataTCP, forwardataudp } from './../outbound/forward.js';
 import { closeSocketQuietly, WebSocket发送并等待, 创建上行写入队列 } from './../stream.js';
 import { isSpeedTestSite, 构造WS本地204响应 } from './../speedtest.js';
-import { log } from './../logging.js';;
+import { log } from './../logging.js';
 import { 数据转Uint8Array, 拼接字节数据 } from './../utils/bytes.js';
 import { sha224 } from './../web.js';
 

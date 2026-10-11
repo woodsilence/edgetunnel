@@ -45,6 +45,7 @@ Cloudflare Worker 边缘节点
 | `transport/xhttp.js` | XHTTP 传输（抗探测） | `处理叉HTTP请求`、`校验叉HTTPPadding` |
 | `protocol/vless.js` | VLESS 解析 | `解析魏烈思请求`、`UUID字节匹配` |
 | `protocol/trojan.js` | Trojan 解析 | `解析木马请求` |
+| `protocol/trojan-proxy.js` | Trojan over 反代 | `连接木马反代`、`提取木马反代握手数据` |
 | `protocol/shadowsocks.js` | SS AEAD 加解密 | `SSAEAD加密`、`SS派生主密钥` |
 | `outbound/forward.js` | 出站决策树 | `forwardataTCP`、`forwardataudp` |
 | `outbound/proxies.js` | SOCKS5 / HTTP(S) 代理 | `socks5Connect`、`httpConnect` |
@@ -52,6 +53,9 @@ Cloudflare Worker 边缘节点
 | `outbound/sstp.js` | SSTP 代理 | `sstpConnect` |
 | `stream.js` | Grain 合包与双向搬运 | `创建下行Grain发送器`、`connectStreams` |
 | `net/tls.js` | 手写 TLS 客户端 | `TlsClient` |
+| `net/tcp.js` | TCP 连接世代管理 | `开始TCP连接世代`、`失效TCP连接世代`、`有效数据长度` |
+| `net/addr.js` | 地址判定与连接超时 | `stripIPv6Brackets`、`isIPHostname`、`withTimeout` |
+| `net/dns.js` | DNS-over-HTTPS 查询 | `DoH查询` |
 | `subscription.js` | 订阅生成 / 配置热补丁 | `读取config_JSON`、`Clash订阅配置文件热补丁` |
 | `proxy-config.js` | 反代参数解析 | `反代参数获取`、`获取SOCKS5账号` |
 | `net/ips.js` | 运营商识别与优选 IP 拉取 | `识别运营商`、`生成随机IP`、`请求优选API` |
@@ -60,6 +64,23 @@ Cloudflare Worker 边缘节点
 | `utils/hash.js` | MD5 二次派生 | `MD5MD5` |
 | `speedtest.js` | 测速旁路 | `isSpeedTestSite` |
 | `web.js` | 伪装页与杂项 | `nginx`、`html1101`、`sha224` |
+
+### 依赖方向（受 `test/architecture.mjs` 守卫）
+
+`src/` 内**不允许出现循环依赖**，该测试已接入 `npm test`。
+
+```text
+index.js
+  ├─ transport/   protocol/   subscription.js
+  ├─ outbound/    stream.js   proxy-config.js   web.js
+  │     └─ net/{tls,tcp,addr,dns,ips}.js   utils/{bytes,hash}.js
+  └─ logging.js → state.js        paths.js（零依赖叶子）
+```
+
+规则很直白：**底层工具不许「就近定义」在高层模块里**。
+`有效数据长度` 曾住在 `transport/xhttp.js`，被 7 个模块引用，于是所有
+outbound 模块都得依赖传输层；`stripIPv6Brackets` 曾住在 `outbound/turn.js`，
+同理。这两点各自都是 100+ 条循环路径的源头。
 
 ---
 
@@ -113,9 +134,17 @@ WebCrypto 规范**不包含 MD5**，`crypto.subtle.digest('MD5')` 在标准运�
 
 ---
 
-## 四、构建流水线
+## 四、构建
 
-`npm run build` 会依次执行 `scripts/pipeline.mjs`：
+### 日常：`npm run build`
+
+只做一件事——用 esbuild 把 `src/` 打包回 `_worker.js`。
+改完代码跑它就行。
+
+### 一次性：`npm run regenerate`
+
+`scripts/pipeline.mjs` 是当初把 6691 行单体版机械切成模块时用的工具，
+保留了「行区间 → 模块」的映射，便于回溯每个函数搬到了哪里：
 
 | 步骤 | 作用 |
 |---|---|
@@ -125,11 +154,14 @@ WebCrypto 规范**不包含 MD5**，`crypto.subtle.digest('MD5')` 在标准运�
 | `gen-entry.mjs` | 切出 `fetch()` 方法体 |
 | `assemble-index.mjs` | 装配入口（共享状态改走 state.js） |
 | `postprocess.cjs` | 修补可变状态 / 局部别名 / index import |
-| `build.mjs` | esbuild 打包回 `_worker.js` |
 
-> 这套脚本是从单体版**一次性抽取**时用的，保留了「行区间 → 模块」的映射，
-> 便于回溯每个函数搬到了哪里。日常改代码直接编辑 `src/**.js` 再 `npm run build` 即可，
-> **不需要**重跑 pipeline。
+> ⚠️ **它会覆盖 `src/`。** 流水线照的是抽取当时的 `ref/monolith.js`，
+> 此后所有手工修改（面板、地区显示、`common.js` 拆分、破环等）都不会被它保留。
+> 它现在的用途只有**回溯历史**，不是重新生成代码的途径。
+>
+> 曾经 `build` 直接指向这条流水线，而 `npm test` 第一步就是 `npm run build`，
+> 导致 20 个文件上的手工修改会被无声丢弃且 `git status` 全绿。
+> 现已改为必须显式调用 `npm run regenerate`。
 
 ---
 
@@ -140,6 +172,7 @@ WebCrypto 规范**不包含 MD5**，`crypto.subtle.digest('MD5')` 在标准运�
 | `npm run test:md5` | MD5 与 Node 原生逐字节一致（含全部填充块边界） |
 | `npm run test:deep` | 鉴权派生：登录 Cookie、UUID、订阅 token、版本探活 |
 | `npm run test:pages` | 内置面板与两个提示页的结构、路由、响应头 |
+| `npm run test:arch` | **架构守卫**：import 可解析 + 零循环依赖 |
 | `npm run test:regress` | 15 条请求用例与重构前的响应逐项比对 |
 | `npm test` | 构建 + 上述全部 |
 
