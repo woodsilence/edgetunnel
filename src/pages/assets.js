@@ -62,8 +62,10 @@ export const PANEL_CSS = `
   --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
 }
 
+/* 深色覆盖。加 :not(.force-light) 是为了让浅色预览脚本只需往 <html> 挂一个类，
+   而不必把下面这套令牌原样抄一份到预览文件里——抄一份必然会随主题调整而失效。 */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not(.force-light) {
     --blue: #2997ff;
     --blue-hover: #47a6ff;
     --blue-active: #1d8cff;

@@ -136,11 +136,26 @@ WebCrypto 规范**不包含 MD5**，`crypto.subtle.digest('MD5')` 在标准运�
 |---|---|
 | `npm run test:md5` | MD5 与 Node 原生逐字节一致（含全部填充块边界） |
 | `npm run test:deep` | 鉴权派生：登录 Cookie、UUID、订阅 token、版本探活 |
+| `npm run test:pages` | 内置面板与两个提示页的结构、路由、响应头 |
 | `npm run test:regress` | 15 条请求用例与重构前的响应逐项比对 |
 | `npm test` | 构建 + 上述全部 |
 
 回归基线 `ref/baseline.json` 来自重构前的单体版（`ref/monolith.js`），
 改动行为时**先跑 `npm run baseline` 更新基线并 review diff**，确认是有意为之。
+
+### 本地预览
+
+| 命令 | 说明 |
+|---|---|
+| `node scripts/preview.mjs [端口]` | 起本地服务（默认 8791），面板跑**真实后端**，保存/重置/日志均生效。已自动注入合法 Cookie，无需登录。清空数据删 `preview/_kv.json` |
+| `node scripts/gen-preview.mjs` | 产出 `preview/*.html` 静态页，数据由注入提供，`file://` 双击可看 |
+| `node scripts/gen-preview-light.mjs` | 由静态页派生浅色版（需先跑上一条） |
+
+三者共用 `scripts/_harness.mjs` 里的假 CF 环境（凭据、鉴权 Cookie 算法、
+请求对象构造），不要在各脚本里另抄一份。浅色版靠 `<html class="force-light">`
+让 `assets.js` 的深色媒体查询失效，因此**不需要**在预览脚本里复制设计令牌。
+
+> 沙箱与内置浏览器访问不到 `localhost`，`preview.mjs` 需在本机终端运行。
 
 ---
 

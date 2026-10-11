@@ -482,12 +482,15 @@ var CC_CN = {
   CN: '中国', KP: '朝鲜', MN: '蒙古', KH: '柬埔寨', LA: '老挝', MM: '缅甸', BN: '文莱'
 };
 
-function 地区名称(cc, city) {
+/**
+ * 国家/地区码 → 中文名。未收录时回退到原始码，不会因此丢信息。
+ *
+ * 城市名（request.cf.city）只放进 title 提示，不进正文：
+ * CF 返回的通常是英文原名，和中文国名并排会变成「香港 · Hong Kong」这种冗余。
+ */
+function 地区名称(cc) {
   var 国家 = String(cc || '').toUpperCase();
-  var 中文 = CC_CN[国家];
-  var 城市名 = String(city || '').trim();
-  if (中文 && 城市名 && 城市名 !== 中文) return 中文 + ' · ' + 城市名;
-  return 中文 || 城市名 || 国家 || '—';
+  return CC_CN[国家] || 国家 || '—';
 }
 
 /**
@@ -597,10 +600,14 @@ function renderOverview() {
 
   var g = GEO || {};
   var 网络 = [g.asn ? 'AS' + g.asn : '', g.asOrganization || ''].filter(Boolean).join(' ');
+  var 城市 = String(g.city || '').trim();
 
+  // 第三项为可选 title，用于补充正文放不下的细节
   var rows = [
-    ['CF 机房', colo ? colo + (COLO_CITY[colo] ? ' · ' + COLO_CITY[colo] : '') : '—'],
-    ['访问来源', 地区名称(g.country, g.city)],
+    ['CF 机房', colo ? colo + (COLO_CITY[colo] ? ' · ' + COLO_CITY[colo] : '') : '—',
+      colo && !COLO_CITY[colo] ? '机房 ' + colo : ''],
+    ['访问来源', 地区名称(g.country),
+      [城市, g.country || ''].filter(Boolean).join(' · ')],
     ['接入网络', 网络 || '—'],
     ['主域名', CFG.HOST || '—'],
     ['节点路径', CFG.PATH || '/'],
@@ -612,9 +619,12 @@ function renderOverview() {
     ['加载耗时', CFG.加载时间 || '—']
   ];
   $('o-info').innerHTML = rows.map(function (r) {
-    return '<tr><th style="width:150px">' + r[0] + '</th><td class="mono">' +
-           String(r[1]).replace(/[<>&]/g, function (m) { return { '<': '&lt;', '>': '&gt;', '&': '&amp;' }[m]; }) +
-           '</td></tr>';
+    var 文本 = String(r[1]).replace(/[<>&]/g, function (m) { return { '<': '&lt;', '>': '&gt;', '&': '&amp;' }[m]; });
+    var 提示 = String(r[2] || '').replace(/[<>&"]/g, function (m) {
+      return { '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[m];
+    });
+    return '<tr><th style="width:150px">' + r[0] + '</th><td class="mono"' +
+           (提示 ? ' title="' + 提示 + '"' : '') + '>' + 文本 + '</td></tr>';
   }).join('');
 }
 

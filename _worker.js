@@ -6474,8 +6474,10 @@ var PANEL_CSS = `
   --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
 }
 
+/* \u6DF1\u8272\u8986\u76D6\u3002\u52A0 :not(.force-light) \u662F\u4E3A\u4E86\u8BA9\u6D45\u8272\u9884\u89C8\u811A\u672C\u53EA\u9700\u5F80 <html> \u6302\u4E00\u4E2A\u7C7B\uFF0C
+   \u800C\u4E0D\u5FC5\u628A\u4E0B\u9762\u8FD9\u5957\u4EE4\u724C\u539F\u6837\u6284\u4E00\u4EFD\u5230\u9884\u89C8\u6587\u4EF6\u91CC\u2014\u2014\u6284\u4E00\u4EFD\u5FC5\u7136\u4F1A\u968F\u4E3B\u9898\u8C03\u6574\u800C\u5931\u6548\u3002 */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not(.force-light) {
     --blue: #2997ff;
     --blue-hover: #47a6ff;
     --blue-active: #1d8cff;
@@ -7322,12 +7324,15 @@ var CC_CN = {
   CN: '\u4E2D\u56FD', KP: '\u671D\u9C9C', MN: '\u8499\u53E4', KH: '\u67EC\u57D4\u5BE8', LA: '\u8001\u631D', MM: '\u7F05\u7538', BN: '\u6587\u83B1'
 };
 
-function \u5730\u533A\u540D\u79F0(cc, city) {
+/**
+ * \u56FD\u5BB6/\u5730\u533A\u7801 \u2192 \u4E2D\u6587\u540D\u3002\u672A\u6536\u5F55\u65F6\u56DE\u9000\u5230\u539F\u59CB\u7801\uFF0C\u4E0D\u4F1A\u56E0\u6B64\u4E22\u4FE1\u606F\u3002
+ *
+ * \u57CE\u5E02\u540D\uFF08request.cf.city\uFF09\u53EA\u653E\u8FDB title \u63D0\u793A\uFF0C\u4E0D\u8FDB\u6B63\u6587\uFF1A
+ * CF \u8FD4\u56DE\u7684\u901A\u5E38\u662F\u82F1\u6587\u539F\u540D\uFF0C\u548C\u4E2D\u6587\u56FD\u540D\u5E76\u6392\u4F1A\u53D8\u6210\u300C\u9999\u6E2F \xB7 Hong Kong\u300D\u8FD9\u79CD\u5197\u4F59\u3002
+ */
+function \u5730\u533A\u540D\u79F0(cc) {
   var \u56FD\u5BB6 = String(cc || '').toUpperCase();
-  var \u4E2D\u6587 = CC_CN[\u56FD\u5BB6];
-  var \u57CE\u5E02\u540D = String(city || '').trim();
-  if (\u4E2D\u6587 && \u57CE\u5E02\u540D && \u57CE\u5E02\u540D !== \u4E2D\u6587) return \u4E2D\u6587 + ' \xB7 ' + \u57CE\u5E02\u540D;
-  return \u4E2D\u6587 || \u57CE\u5E02\u540D || \u56FD\u5BB6 || '\u2014';
+  return CC_CN[\u56FD\u5BB6] || \u56FD\u5BB6 || '\u2014';
 }
 
 /**
@@ -7437,10 +7442,14 @@ function renderOverview() {
 
   var g = GEO || {};
   var \u7F51\u7EDC = [g.asn ? 'AS' + g.asn : '', g.asOrganization || ''].filter(Boolean).join(' ');
+  var \u57CE\u5E02 = String(g.city || '').trim();
 
+  // \u7B2C\u4E09\u9879\u4E3A\u53EF\u9009 title\uFF0C\u7528\u4E8E\u8865\u5145\u6B63\u6587\u653E\u4E0D\u4E0B\u7684\u7EC6\u8282
   var rows = [
-    ['CF \u673A\u623F', colo ? colo + (COLO_CITY[colo] ? ' \xB7 ' + COLO_CITY[colo] : '') : '\u2014'],
-    ['\u8BBF\u95EE\u6765\u6E90', \u5730\u533A\u540D\u79F0(g.country, g.city)],
+    ['CF \u673A\u623F', colo ? colo + (COLO_CITY[colo] ? ' \xB7 ' + COLO_CITY[colo] : '') : '\u2014',
+      colo && !COLO_CITY[colo] ? '\u673A\u623F ' + colo : ''],
+    ['\u8BBF\u95EE\u6765\u6E90', \u5730\u533A\u540D\u79F0(g.country),
+      [\u57CE\u5E02, g.country || ''].filter(Boolean).join(' \xB7 ')],
     ['\u63A5\u5165\u7F51\u7EDC', \u7F51\u7EDC || '\u2014'],
     ['\u4E3B\u57DF\u540D', CFG.HOST || '\u2014'],
     ['\u8282\u70B9\u8DEF\u5F84', CFG.PATH || '/'],
@@ -7452,9 +7461,12 @@ function renderOverview() {
     ['\u52A0\u8F7D\u8017\u65F6', CFG.\u52A0\u8F7D\u65F6\u95F4 || '\u2014']
   ];
   $('o-info').innerHTML = rows.map(function (r) {
-    return '<tr><th style="width:150px">' + r[0] + '</th><td class="mono">' +
-           String(r[1]).replace(/[<>&]/g, function (m) { return { '<': '&lt;', '>': '&gt;', '&': '&amp;' }[m]; }) +
-           '</td></tr>';
+    var \u6587\u672C = String(r[1]).replace(/[<>&]/g, function (m) { return { '<': '&lt;', '>': '&gt;', '&': '&amp;' }[m]; });
+    var \u63D0\u793A = String(r[2] || '').replace(/[<>&"]/g, function (m) {
+      return { '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[m];
+    });
+    return '<tr><th style="width:150px">' + r[0] + '</th><td class="mono"' +
+           (\u63D0\u793A ? ' title="' + \u63D0\u793A + '"' : '') + '>' + \u6587\u672C + '</td></tr>';
   }).join('');
 }
 
