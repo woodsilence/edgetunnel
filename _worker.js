@@ -849,7 +849,7 @@ var TlsClient = class {
   }
 };
 
-// src/common.js
+// src/logging.js
 function log(...args) {
   if (\u8C03\u8BD5\u65E5\u5FD7\u6253\u5370) console.log(...args);
 }
@@ -861,12 +861,16 @@ function \u63A9\u7801\u654F\u611F\u4FE1\u606F(\u6587\u672C, \u524D\u7F00\u957F\u
   const \u661F\u53F7\u6570\u91CF = \u6587\u672C.length - \u524D\u7F00\u957F\u5EA6 - \u540E\u7F00\u957F\u5EA6;
   return `${\u524D\u7F00}${"*".repeat(\u661F\u53F7\u6570\u91CF)}${\u540E\u7F00}`;
 }
+
+// src/utils/hash.js
 async function MD5MD5(\u6587\u672C) {
   const \u7F16\u7801\u5668 = new TextEncoder();
   const \u7B2C\u4E00\u6B21\u5341\u516D\u8FDB\u5236 = MD5\u8F6C\u5341\u516D\u8FDB\u5236(\u7F16\u7801\u5668.encode(\u6587\u672C));
   const \u7B2C\u4E8C\u6B21\u5341\u516D\u8FDB\u5236 = MD5\u8F6C\u5341\u516D\u8FDB\u5236(\u7F16\u7801\u5668.encode(\u7B2C\u4E00\u6B21\u5341\u516D\u8FDB\u5236.slice(7, 27)));
   return \u7B2C\u4E8C\u6B21\u5341\u516D\u8FDB\u5236.toLowerCase();
 }
+
+// src/paths.js
 var \u5E38\u7528\u8DEF\u5F84\u5E38\u91CF = ["about", "account", "acg", "act", "activity", "ad", "ads", "ajax", "album", "albums", "anime", "api", "app", "apps", "archive", "archives", "article", "articles", "ask", "auth", "avatar", "bbs", "bd", "blog", "blogs", "book", "books", "bt", "buy", "cart", "category", "categories", "cb", "channel", "channels", "chat", "china", "city", "class", "classify", "clip", "clips", "club", "cn", "code", "collect", "collection", "comic", "comics", "community", "company", "config", "contact", "content", "course", "courses", "cp", "data", "detail", "details", "dh", "directory", "discount", "discuss", "dl", "dload", "doc", "docs", "document", "documents", "doujin", "download", "downloads", "drama", "edu", "en", "ep", "episode", "episodes", "event", "events", "f", "faq", "favorite", "favourites", "favs", "feedback", "file", "files", "film", "films", "forum", "forums", "friend", "friends", "game", "games", "gif", "go", "go.html", "go.php", "group", "groups", "help", "home", "hot", "htm", "html", "image", "images", "img", "index", "info", "intro", "item", "items", "ja", "jp", "jump", "jump.html", "jump.php", "jumping", "knowledge", "lang", "lesson", "lessons", "lib", "library", "link", "links", "list", "live", "lives", "m", "mag", "magnet", "mall", "manhua", "map", "member", "members", "message", "messages", "mobile", "movie", "movies", "music", "my", "new", "news", "note", "novel", "novels", "online", "order", "out", "out.html", "out.php", "outbound", "p", "page", "pages", "pay", "payment", "pdf", "photo", "photos", "pic", "pics", "picture", "pictures", "play", "player", "playlist", "post", "posts", "product", "products", "program", "programs", "project", "qa", "question", "rank", "ranking", "read", "readme", "redirect", "redirect.html", "redirect.php", "reg", "register", "res", "resource", "retrieve", "sale", "search", "season", "seasons", "section", "seller", "series", "service", "services", "setting", "settings", "share", "shop", "show", "shows", "site", "soft", "sort", "source", "special", "star", "stars", "static", "stock", "store", "stream", "streaming", "streams", "student", "study", "tag", "tags", "task", "teacher", "team", "tech", "temp", "test", "thread", "tool", "tools", "topic", "topics", "torrent", "trade", "travel", "tv", "txt", "type", "u", "upload", "uploads", "url", "urls", "user", "users", "v", "version", "videos", "view", "vip", "vod", "watch", "web", "wenku", "wiki", "work", "www", "zh", "zh-cn", "zh-tw", "zip"];
 function \u968F\u673A\u8DEF\u5F84(\u5B8C\u6574\u8282\u70B9\u8DEF\u5F84 = "/") {
   const \u968F\u673A\u6570 = Math.floor(Math.random() * 3 + 1);
@@ -888,6 +892,8 @@ function \u66FF\u6362\u661F\u53F7\u4E3A\u968F\u673A\u5B57\u7B26(\u5185\u5BB9) {
     return s;
   });
 }
+
+// src/net/ips.js
 function \u8BC6\u522B\u8FD0\u8425\u5546(request) {
   const cf = request?.cf;
   const ASN\u8FD0\u8425\u5546\u6620\u5C04 = {

@@ -5,8 +5,11 @@
   "type": "module",
   "description": "基于 Cloudflare Workers/Pages 的边缘隧道（VLESS/Trojan/Shadowsocks）",
   "scripts": {
-    "build": "node scripts/pipeline.mjs",
-    "check": "node scripts/pipeline.mjs --check",
+    "build": "node scripts/build.mjs",
+    "regenerate": "node scripts/pipeline.mjs",
+    "regenerate:check": "node scripts/pipeline.mjs --check",
+    "preview": "node scripts/preview.mjs",
+    "preview:html": "node scripts/gen-preview.mjs && node scripts/gen-preview-light.mjs",
     "test": "npm run build && npm run test:md5 && npm run test:deep && npm run test:pages && npm run test:regress",
     "test:md5": "node test/md5.mjs",
     "test:deep": "node test/deep.mjs",

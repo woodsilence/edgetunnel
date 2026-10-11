@@ -15,7 +15,7 @@
  */
 
 import { 上行合包目标字节, 下行Grain包字节 } from './constants.js';
-import { log } from './common.js';
+import { log } from './logging.js';;
 import { 数据转Uint8Array } from './utils/bytes.js';
 
 function closeSocketQuietly(socket) {

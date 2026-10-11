@@ -15,7 +15,7 @@
 import { 有效数据长度 } from './../transport/xhttp.js';
 import { TlsClient } from './../net/tls.js';
 import { stripIPv6Brackets, isIPHostname } from './turn.js';
-import { log } from './../common.js';
+import { log } from './../logging.js';;
 import { 数据转Uint8Array, 拼接字节数据 } from './../utils/bytes.js';
 
 async function socks5Connect(targetHost, targetPort, initialData, TCP连接, parsedSocks5) {

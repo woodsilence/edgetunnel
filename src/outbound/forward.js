@@ -27,7 +27,7 @@ import { isIPHostname, isIPv4, turnConnect } from './turn.js';
 import { sstpConnect } from './sstp.js';
 import { closeSocketQuietly, WebSocket发送并等待, connectStreams } from './../stream.js';
 import { DoH查询 } from './../subscription.js';
-import { log } from './../common.js';
+import { log } from './../logging.js';;
 import { 数据转Uint8Array } from './../utils/bytes.js';
 import { 解析地址端口 } from './../web.js';
 

@@ -19,7 +19,7 @@ import { 魏烈思文本解码器, UUID字节匹配 } from './../protocol/vless.
 import { forwardataTCP, forwardataudp } from './../outbound/forward.js';
 import { closeSocketQuietly, 创建上行Grain合包流 } from './../stream.js';
 import { isSpeedTestSite, 构造本地204响应 } from './../speedtest.js';
-import { log } from './../common.js';
+import { log } from './../logging.js';;
 import { sha224 } from './../web.js';
 
 const HPACKHuffman码长 = [

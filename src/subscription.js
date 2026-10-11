@@ -14,7 +14,10 @@
 import { config_JSON, 特征码字典 } from './constants.js';
 import { SOCKS5白名单 } from './state.js';
 import { 获取叉HTTPPadding标识 } from './transport/xhttp.js';
-import { log, 掩码敏感信息, MD5MD5, 随机路径, 整理成数组 } from './common.js';
+import { log, 掩码敏感信息 } from './logging.js';
+import { MD5MD5 } from './utils/hash.js';
+import { 随机路径 } from './paths.js';
+import { 整理成数组 } from './net/ips.js';;
 import { getCloudflareUsage } from './web.js';
 
 function base64SecretEncode(plaintext, secret) {

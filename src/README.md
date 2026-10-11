@@ -54,7 +54,10 @@ Cloudflare Worker 边缘节点
 | `net/tls.js` | 手写 TLS 客户端 | `TlsClient` |
 | `subscription.js` | 订阅生成 / 配置热补丁 | `读取config_JSON`、`Clash订阅配置文件热补丁` |
 | `proxy-config.js` | 反代参数解析 | `反代参数获取`、`获取SOCKS5账号` |
-| `common.js` | 日志、随机路径、DoH、优选 API | `log`、`随机路径`、`DoH查询` |
+| `net/ips.js` | 运营商识别与优选 IP 拉取 | `识别运营商`、`生成随机IP`、`请求优选API` |
+| `logging.js` | 调试日志唯一出口 | `log`、`掩码敏感信息` |
+| `paths.js` | 伪装路径生成 | `随机路径`、`替换星号为随机字符` |
+| `utils/hash.js` | MD5 二次派生 | `MD5MD5` |
 | `speedtest.js` | 测速旁路 | `isSpeedTestSite` |
 | `web.js` | 伪装页与杂项 | `nginx`、`html1101`、`sha224` |
 

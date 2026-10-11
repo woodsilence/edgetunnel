@@ -15,7 +15,7 @@ import { 解析魏烈思请求 } from './../protocol/vless.js';
 import { forwardataTCP, forwardataudp } from './../outbound/forward.js';
 import { 创建上行写入队列 } from './../stream.js';
 import { isSpeedTestSite, 构造本地204响应 } from './../speedtest.js';
-import { log } from './../common.js';
+import { log } from './../logging.js';;
 import { 数据转Uint8Array } from './../utils/bytes.js';
 
 async function 处理gRPC请求(request, yourUUID, 反代上下文 = {}) {

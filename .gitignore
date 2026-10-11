@@ -19,6 +19,9 @@ GRAINTCP_*
 ref/bundle.js
 ref/entry-body.js
 ref/manifest.json
+# 每次 test:regress 都会重写，且与 baseline.json 内容相同，属于噪音
+ref/current.json
+# 预览脚本会把 _worker.js 落成 .mjs 再动态 import
 test/_*.mjs
 
 # Cloudflare Workers
@@ -44,6 +47,5 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 log/
-# Ԥ������
+# 预览输出目录
 preview/
-test/_*.mjs

@@ -24,7 +24,7 @@ import { SS支持加密配置, SSAEAD标签长度, SS派生主密钥, SS派生�
 import { forwardataTCP, forwardataudp } from './../outbound/forward.js';
 import { closeSocketQuietly, WebSocket发送并等待, 创建上行写入队列 } from './../stream.js';
 import { isSpeedTestSite, 构造WS本地204响应 } from './../speedtest.js';
-import { log } from './../common.js';
+import { log } from './../logging.js';;
 import { 数据转Uint8Array, 拼接字节数据 } from './../utils/bytes.js';
 import { sha224 } from './../web.js';
 

@@ -10,7 +10,8 @@
  */
 
 import { DoH查询 } from './subscription.js';
-import { log, 整理成数组 } from './common.js';
+import { log } from './logging.js';
+import { 整理成数组 } from './net/ips.js';;
 
 async function getCloudflareUsage(Email, GlobalAPIKey, AccountID, APIToken) {
 	const API = "https://api.cloudflare.com/client/v4";
