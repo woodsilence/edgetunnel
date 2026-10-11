@@ -28,23 +28,32 @@ const enc = new TextEncoder();
 const nodeMD5 = s => createHash('md5').update(Buffer.from(enc.encode(s))).digest('hex');
 const authCookie = nodeMD5(nodeMD5(`${'Mozilla/5.0'}${KEY}${ADMIN}`).slice(7, 27));
 
-// 演示用 KV 内容
-const DEMO_LOGS = JSON.stringify([
-  { datetime: new Date(Date.now() - 120000).toISOString(), reqType: 'Get_SUB', ip: '203.0.113.7', ua: 'Clash/1.18.0', remarks: '订阅拉取' },
-  { datetime: new Date(Date.now() - 900000).toISOString(), reqType: 'Proxy', ip: '198.51.100.22', ua: 'v2rayN/6.23', remarks: '反代连接' },
-  { datetime: new Date(Date.now() - 3600000).toISOString(), reqType: 'Admin_Login', ip: '203.0.113.7', ua: 'Mozilla/5.0', remarks: '面板登录' },
-]);
-const DEMO_IPS = '1.1.1.1:443#Sydney\n8.8.8.8:443#Google\nhttps://cf.090227.xyz/sub';
+// 演示用 KV：内存 Map + 落盘，保证「保存配置」刷新后仍在，
+// 否则 put 是空实现，保存看似成功但刷新即丢，会误判成保存功能坏了。
+const KV_FILE = join(ROOT, 'preview', '_kv.json');
+const mem = new Map();
+try { for (const [k, v] of Object.entries(JSON.parse(readFileSync(KV_FILE, 'utf8')))) mem.set(k, v); }
+catch { /* 首次运行无缓存，正常 */ }
+
+const seedKV = () => {
+  if (!mem.has('log.json')) mem.set('log.json', JSON.stringify([
+    { datetime: new Date(Date.now() - 120000).toISOString(), reqType: 'Get_SUB', ip: '203.0.113.7', ua: 'Clash/1.18.0', remarks: '订阅拉取' },
+    { datetime: new Date(Date.now() - 900000).toISOString(), reqType: 'Proxy', ip: '198.51.100.22', ua: 'v2rayN/6.23', remarks: '反代连接' },
+    { datetime: new Date(Date.now() - 3600000).toISOString(), reqType: 'Admin_Login', ip: '203.0.113.7', ua: 'Mozilla/5.0', remarks: '面板登录' },
+  ]));
+  if (!mem.has('ADD.txt')) mem.set('ADD.txt', '1.1.1.1:443#Sydney\n8.8.8.8:443#Google\nhttps://cf.090227.xyz/sub');
+};
+seedKV();
+
+const persist = () => {
+  try { writeFileSync(KV_FILE, JSON.stringify(Object.fromEntries(mem), null, 2)); } catch { }
+};
 
 const KV = {
-  async get(k) {
-    if (k === 'config.json') return null;               // 使用默认配置
-    if (k === 'log.json') return DEMO_LOGS;
-    if (k === 'ADD.txt') return DEMO_IPS;
-    return null;
-  },
-  async put() { },
-  async list() { return { keys: [] }; },
+  async get(k) { return mem.has(k) ? mem.get(k) : null; },
+  async put(k, v) { mem.set(k, v); persist(); },
+  async delete(k) { mem.delete(k); persist(); },
+  async list() { return { keys: [...mem.keys()].map(name => ({ name })) }; },
 };
 
 const env = { ADMIN, KEY, UUID, HOST, KV };
@@ -69,7 +78,9 @@ const server = http.createServer(async (req, res) => {
   }
 
   const fake = {
-    url: 'http://localhost' + url.pathname + url.search,
+    // 必须用 https：Worker 对 http: 请求会一律 301 跳到 https（见 index.js 的
+    // url.protocol === 'http:' 分支），本地明文预览会被重定向到无法访问的地址。
+    url: 'https://localhost' + url.pathname + url.search,
     method: req.method,
     cf: { colo: 'HKG', asn: 13335, country: 'HK' },
     headers, body, redirect: 'manual',
